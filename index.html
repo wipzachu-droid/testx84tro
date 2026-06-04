@@ -27,7 +27,9 @@
   </head>
   <body style="margin: 0; overflow: hidden;">
     <a-scene vr-mode-ui="enabled: false" embedded arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;">
-      <a-box id="target" scale="20 20 20" material="color: red;" position="0 0 -30"></a-box>
+      
+      <a-box id="target" scale="2 2 2" material="color: red;" gps-entity-place="latitude: 39.08474496041421; longitude: 26.56910606288118;"></a-box>
+      
       <a-camera gps-camera="simulateLatitude: 39.08452879519235; simulateLongitude: 26.56913732159621;" rotation-reader></a-camera>
     </a-scene>
 
@@ -55,20 +57,15 @@
       function bearing(a,b,c,d){ var y=Math.sin(toRad(d-b))*Math.cos(toRad(c)),x=Math.cos(toRad(a))*Math.sin(toRad(c))-Math.sin(toRad(a))*Math.cos(toRad(c))*Math.cos(toRad(d-b)); return (toDeg(Math.atan2(y,x))+360)%360; }
 
       function placeBox(d, b) {
-        // Put the box in the scene at the true bearing, distance clamped for visibility.
-        // AR.js convention: -Z = north, +X = east.
-        var dist = Math.min(d, 40);
-        var rad = toRad(b);
-        var x = dist * Math.sin(rad);
-        var z = -dist * Math.cos(rad);
-        box.object3D.position.set(x, 0, z);
+        // FIX 2: Removed manual setting of x and z.
+        // AR.js automatically handles physical 3D positioning natively via the `gps-entity-place` tag in the HTML!
       }
 
       function update() {
         var d = distance(current.lat, current.lon, TARGET.lat, TARGET.lon);
         var b = bearing(current.lat, current.lon, TARGET.lat, TARGET.lon);
         var rel = ((b - heading + 540) % 360) - 180;
-        placeBox(d, b);
+        placeBox(d, b); // We still call this, but the math is delegated to AR.js now
 
         statusEl.className = "ok";
         statusEl.innerHTML = '<span class="big">✅ Navigating</span><br>Distance: ' + d.toFixed(1) + ' m &nbsp;|&nbsp; Bearing: ' + b.toFixed(0) + '° &nbsp; Heading: ' + heading.toFixed(0) + '°<br>Turn: ' + (Math.abs(rel)<12?'go straight':rel>0?'right '+Math.abs(rel).toFixed(0)+'°':'left '+Math.abs(rel).toFixed(0)+'°');
@@ -87,7 +84,6 @@
       function onOrient(e){ var h=null; if(e.webkitCompassHeading!=null)h=e.webkitCompassHeading; else if(e.alpha!=null)h=(360-e.alpha)%360; if(h!=null){ heading=h; haveCompass=true; update(); } }
       function startCompass(){ if(typeof DeviceOrientationEvent!=="undefined"&&typeof DeviceOrientationEvent.requestPermission==="function"){ DeviceOrientationEvent.requestPermission().then(function(s){ if(s==="granted"){ window.addEventListener("deviceorientationabsolute",onOrient,true); window.addEventListener("deviceorientation",onOrient,true); } }).catch(function(){}); } else { window.addEventListener("deviceorientationabsolute",onOrient,true); window.addEventListener("deviceorientation",onOrient,true); } }
       window.addEventListener("click", startCompass, { once:true });
-      startCompass();
       slider.addEventListener("input", function(){ if(!haveCompass){ heading=parseInt(slider.value,10); manualReadout.textContent="Manual heading (desktop): "+heading+"°"; update(); } else { manualReadout.textContent="Using device compass"; } });
       update();
     </script>
