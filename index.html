@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>WebAR - Proximity Unlock (3D Models)</title>
+    <title>WebAR - Proximity Unlock (3D Models with Material State)</title>
     
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
@@ -12,10 +12,20 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
-      // 1. COMPONENT: Manages Scale and Clickability for 3D Models
+      // 1. COMPONENT: Manages Scale, Clickability, and 3D Materials
       AFRAME.registerComponent('manage-distance-state', {
         schema: { 
           unlockDistance: { type: 'number', default: 100 } // 100 meters
+        },
+        init: function() {
+          this.isUnlocked = null; // Track state so we don't update every frame
+          this.modelLoaded = false;
+          
+          // Wait for the 3D model to fully load before trying to change its materials
+          this.el.addEventListener('model-loaded', () => {
+            this.modelLoaded = true;
+            this.updateState(); // Apply the correct visual state upon loading
+          });
         },
         tick: function () {
           var camera = document.querySelector('a-camera').object3D;
@@ -28,18 +38,54 @@
           var newScale = Math.max(5, distance * 0.1); 
           this.el.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
 
-          // Proximity Unlock Logic
-          var model = this.el.querySelector('.shape-model');
+          // Check if we cross the threshold
+          var shouldBeUnlocked = distance <= this.data.unlockDistance;
+
+          // Only trigger the heavy material changes IF the state actually flips
+          if (this.isUnlocked !== shouldBeUnlocked) {
+            this.isUnlocked = shouldBeUnlocked;
+            this.updateState();
+          }
+        },
+        updateState: function() {
+          var modelEntity = this.el.querySelector('.shape-model');
           var text = this.el.querySelector('a-text');
           
-          if (distance <= this.data.unlockDistance) {
-            // ACTIVE STATE (Within 100m)
-            if (model) model.classList.add('clickable');
+          // --- 1. A-FRAME ATTRIBUTES ---
+          if (this.isUnlocked) {
+            if (modelEntity) modelEntity.classList.add('clickable');
             if (text) text.setAttribute('opacity', '1.0');
           } else {
-            // INACTIVE STATE (Further than 100m)
-            if (model) model.classList.remove('clickable');
+            if (modelEntity) modelEntity.classList.remove('clickable');
             if (text) text.setAttribute('opacity', '0.5'); 
+          }
+
+          // --- 2. THREE.JS MATERIAL TRAVERSAL ---
+          if (modelEntity && this.modelLoaded) {
+            var mesh = modelEntity.getObject3D('mesh');
+            
+            if (mesh) {
+              // Traverse through every part of the GLB model
+              mesh.traverse((node) => {
+                if (node.isMesh && node.material) {
+                  
+                  // Ensure the material allows transparency
+                  node.material.transparent = true;
+                  
+                  if (this.isUnlocked) {
+                    // ACTIVE: Fully visible, original colors
+                    node.material.opacity = 1.0;
+                    node.material.color = new THREE.Color('#FFFFFF'); // White multiplier reveals original textures
+                  } else {
+                    // INACTIVE: Ghostly/transparent and grayed out
+                    node.material.opacity = 0.4;
+                    node.material.color = new THREE.Color('#555555'); // Dark gray multiplier tints the textures
+                  }
+                  
+                  node.material.needsUpdate = true; // Tell the renderer to apply changes
+                }
+              });
+            }
           }
         }
       });
@@ -82,57 +128,57 @@
 
         <a-entity gps-entity-place="latitude: 39.109621384126825; longitude: 26.565955633631958;" manage-distance-state>
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0"></a-entity>
-          <a-text value="Location 1" color="white" align="center" position="0 1 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Location 1" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
         <a-entity gps-entity-place="latitude: 39.10857606378002; longitude: 26.556846506429483;" manage-distance-state>
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0"></a-entity>
-          <a-text value="Location 2" color="white" align="center" position="0 1 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Location 2" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
         <a-entity gps-entity-place="latitude: 39.111285807437675; longitude: 26.55744215838956;" manage-distance-state>
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0"></a-entity>
-          <a-text value="Location 3" color="white" align="center" position="0 1 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Location 3" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
         <a-entity gps-entity-place="latitude: 39.11161250638677; longitude: 26.55834494382977;" manage-distance-state>
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Blue" position="0 0 0"></a-entity>
-          <a-text value="Location 4" color="white" align="center" position="0 1 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Location 4" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
         <a-entity gps-entity-place="latitude: 39.11245132108184; longitude: 26.558762197607667;" manage-distance-state>
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Green" position="0 0 0"></a-entity>
-          <a-text value="Location 5" color="white" align="center" position="0 1 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Location 5" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
         <a-entity gps-entity-place="latitude: 39.113069388689055; longitude: 26.560013958978683;" manage-distance-state>
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Yellow" position="0 0 0"></a-entity>
-          <a-text value="Location 6" color="white" align="center" position="0 1 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Location 6" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
         <a-entity gps-entity-place="latitude: 39.11321360368077; longitude: 26.561102612009524;" manage-distance-state>
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Purple" position="0 0 0"></a-entity>
-          <a-text value="Location 7" color="white" align="center" position="0 1 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Location 7" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
         <a-entity gps-entity-place="latitude: 39.11293694608975; longitude: 26.562718522083177;" manage-distance-state>
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Orange_(colour)" position="0 0 0"></a-entity>
-          <a-text value="Location 8" color="white" align="center" position="0 1 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Location 8" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
         <a-entity gps-entity-place="latitude: 39.112522245165536; longitude: 26.55472019777063;" manage-distance-state>
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: #" position="0 0 0"></a-entity>
-          <a-text value="Location 9" color="white" align="center" position="0 1 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Location 9" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
         <a-entity gps-entity-place="latitude: 39.11313293752422; longitude: 26.561410299736572;" manage-distance-state>
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: #" position="0 0 0"></a-entity>
-          <a-text value="Location 10" color="white" align="center" position="0 1 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Location 10" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
         <a-entity gps-entity-place="latitude: 39.11116343567997; longitude: 26.555408884737712;" manage-distance-state>
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: #" position="0 0 0"></a-entity>
-          <a-text value="Location 11" color="white" align="center" position="0 1 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Location 11" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
       </a-scene>
@@ -150,8 +196,8 @@
       }).addTo(map);
 
       var locations = [
-        { lat: 39.109621384126825, lng: 26.565955633631958, name: "Far Location", url: "https://en.wikipedia.org/wiki/Red" },
-        { lat: 39.10857606378002, lng: 26.556846506429483, name: "Near Location", url: "https://en.wikipedia.org/wiki/Red" },
+        { lat: 39.109621384126825, lng: 26.565955633631958, name: "Location 1", url: "https://en.wikipedia.org/wiki/Red" },
+        { lat: 39.10857606378002, lng: 26.556846506429483, name: "Location 2", url: "https://en.wikipedia.org/wiki/Red" },
         { lat: 39.111285807437675, lng: 26.55744215838956, name: "Location 3", url: "https://en.wikipedia.org/wiki/Red" },
         { lat: 39.11161250638677, lng: 26.55834494382977, name: "Location 4", url: "https://en.wikipedia.org/wiki/Blue" },
         { lat: 39.11245132108184, lng: 26.558762197607667, name: "Location 5", url: "https://en.wikipedia.org/wiki/Green" },
@@ -159,9 +205,9 @@
         { lat: 39.11321360368077, lng: 26.561102612009524, name: "Location 7", url: "https://en.wikipedia.org/wiki/Purple" },
         { lat: 39.11293694608975, lng: 26.562718522083177, name: "Location 8", url: "https://en.wikipedia.org/wiki/Orange_(colour)" },
         // New Locations
-        { lat: 39.112522245165536, lng: 26.55472019777063, name: "New Loc 1", url: "#" },
-        { lat: 39.11313293752422, lng: 26.561410299736572, name: "New Loc 2", url: "#" },
-        { lat: 39.11116343567997, lng: 26.555408884737712, name: "New Loc 3", url: "#" }
+        { lat: 39.112522245165536, lng: 26.55472019777063, name: "Location 9", url: "#" },
+        { lat: 39.11313293752422, lng: 26.561410299736572, name: "Location 10", url: "#" },
+        { lat: 39.11116343567997, lng: 26.555408884737712, name: "Location 11", url: "#" }
       ];
 
       locations.forEach(function(loc) {
