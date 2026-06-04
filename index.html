@@ -58,4 +58,179 @@
       #center .ring {
         width: 70px; height: 70px; margin: 0 auto 6px;
         border: 5px solid #2ec27e; border-radius: 50%;
-        box-shadow: 0 0 14px rgba(46,194,126,0.8
+        box-shadow: 0 0 14px rgba(46,194,126,0.8);
+      }
+      #center .label {
+        font-weight: bold; font-size: 15px;
+        text-shadow: 0 0 4px #000;
+      }
+
+      /* desktop manual heading control */
+      #manual {
+        position: absolute;
+        bottom: 0; left: 0; right: 0;
+        padding: 10px 14px;
+        background: rgba(0,0,0,0.55);
+        pointer-events: auto;
+        font-size: 13px;
+      }
+      #manual input { width: 100%; }
+    </style>
+  </head>
+  <body style="margin: 0; overflow: hidden;">
+    <a-scene
+      vr-mode-ui="enabled: false"
+      embedded
+      arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
+    >
+      <a-camera
+        gps-camera="simulateLatitude: 39.08452879519235; simulateLongitude: 26.56913732159621;"
+        rotation-reader
+      ></a-camera>
+      <!-- Real GPS: <a-camera gps-camera rotation-reader></a-camera> -->
+    </a-scene>
+
+    <div id="ui">
+      <div id="status"><span class="big">⏳ Waiting for location…</span></div>
+
+      <div id="arrow-left" class="arrow">
+        <svg viewBox="0 0 100 100"><polygon points="70,10 20,50 70,90" fill="#fff"/></svg>
+      </div>
+      <div id="arrow-right" class="arrow">
+        <svg viewBox="0 0 100 100"><polygon points="30,10 80,50 30,90" fill="#fff"/></svg>
+      </div>
+
+      <div id="center">
+        <div class="ring"></div>
+        <div class="label">Straight ahead</div>
+      </div>
+
+      <div id="manual">
+        <div id="manual-readout">Manual heading (desktop): 0°</div>
+        <input id="heading-slider" type="range" min="0" max="359" value="0" />
+      </div>
+    </div>
+
+    <script>
+      var TARGET = { lat: 39.08474496041421, lon: 26.56910606288118 };
+      var ME     = { lat: 39.08452879519235, lon: 26.56913732159621 };
+
+      var statusEl = document.getElementById("status");
+      var aL = document.getElementById("arrow-left");
+      var aR = document.getElementById("arrow-right");
+      var aC = document.getElementById("center");
+      var slider = document.getElementById("heading-slider");
+      var manualReadout = document.getElementById("manual-readout");
+
+      var current = { lat: ME.lat, lon: ME.lon };
+      var heading = 0;          // device compass heading, degrees
+      var haveCompass = false;
+
+      function toRad(d){ return d * Math.PI / 180; }
+      function toDeg(r){ return r * 180 / Math.PI; }
+
+      function distance(lat1, lon1, lat2, lon2) {
+        var R = 6371000;
+        var dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+        var a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+                Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)*Math.sin(dLon/2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      }
+
+      // bearing FROM me TO target, 0 = north, clockwise
+      function bearing(lat1, lon1, lat2, lon2) {
+        var y = Math.sin(toRad(lon2-lon1)) * Math.cos(toRad(lat2));
+        var x = Math.cos(toRad(lat1))*Math.sin(toRad(lat2)) -
+                Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(toRad(lon2-lon1));
+        return (toDeg(Math.atan2(y, x)) + 360) % 360;
+      }
+
+      function update() {
+        var d = distance(current.lat, current.lon, TARGET.lat, TARGET.lon);
+        var b = bearing(current.lat, current.lon, TARGET.lat, TARGET.lon);
+
+        // relative angle: where target is vs where I'm facing (-180..180)
+        var rel = ((b - heading + 540) % 360) - 180;
+
+        statusEl.className = "ok";
+        statusEl.innerHTML =
+          '<span class="big">✅ Navigating</span><br>' +
+          'Distance: ' + d.toFixed(1) + ' m &nbsp;|&nbsp; ' +
+          'Bearing: ' + b.toFixed(0) + '° &nbsp; Heading: ' + heading.toFixed(0) + '°<br>' +
+          'Turn: ' + (Math.abs(rel) < 12 ? 'go straight' :
+                      rel > 0 ? 'right ' + Math.abs(rel).toFixed(0) + '°' :
+                                'left '  + Math.abs(rel).toFixed(0) + '°');
+
+        var THRESH = 12; // degrees considered "ahead"
+        aL.classList.toggle("active", rel < -THRESH);
+        aR.classList.toggle("active", rel >  THRESH);
+        aC.classList.toggle("active", Math.abs(rel) <= THRESH);
+
+        if (d < 5) {
+          aL.classList.remove("active");
+          aR.classList.remove("active");
+          aC.classList.add("active");
+          aC.querySelector(".label").textContent = "Arrived!";
+        } else {
+          aC.querySelector(".label").textContent = "Straight ahead";
+        }
+      }
+
+      // ---- position from AR.js / browser ----
+      function setPos(lat, lon){ current.lat = lat; current.lon = lon; update(); }
+
+      ["gps-camera-update-position","gps-update-position"].forEach(function(name){
+        window.addEventListener(name, function(e){
+          var p = (e.detail && (e.detail.position || e.detail)) || {};
+          if (p.latitude != null) setPos(p.latitude, p.longitude);
+        });
+      });
+      if (navigator.geolocation) {
+        navigator.geolocation.watchPosition(
+          function(pos){ setPos(pos.coords.latitude, pos.coords.longitude); },
+          function(err){
+            statusEl.className = "err";
+            statusEl.innerHTML = '<span class="big">❌ ' + err.message + '</span>';
+          },
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+        );
+      }
+
+      // ---- heading from device compass ----
+      function onOrient(e) {
+        var h = null;
+        if (e.webkitCompassHeading != null) h = e.webkitCompassHeading;      // iOS
+        else if (e.alpha != null) h = (360 - e.alpha) % 360;                 // others
+        if (h != null) { heading = h; haveCompass = true; update(); }
+      }
+      function startCompass() {
+        if (typeof DeviceOrientationEvent !== "undefined" &&
+            typeof DeviceOrientationEvent.requestPermission === "function") {
+          DeviceOrientationEvent.requestPermission().then(function(state){
+            if (state === "granted") window.addEventListener("deviceorientationabsolute", onOrient, true),
+                                     window.addEventListener("deviceorientation", onOrient, true);
+          }).catch(function(){});
+        } else {
+          window.addEventListener("deviceorientationabsolute", onOrient, true);
+          window.addEventListener("deviceorientation", onOrient, true);
+        }
+      }
+      // iOS needs a user gesture to grant orientation permission
+      window.addEventListener("click", startCompass, { once: true });
+      startCompass();
+
+      // ---- manual heading slider (desktop fallback) ----
+      slider.addEventListener("input", function () {
+        if (!haveCompass) {            // only override when no real compass
+          heading = parseInt(slider.value, 10);
+          manualReadout.textContent = "Manual heading (desktop): " + heading + "°";
+          update();
+        } else {
+          manualReadout.textContent = "Using device compass";
+        }
+      });
+
+      update();
+    </script>
+  </body>
+</html>
