@@ -40,22 +40,22 @@
         id="target"
         scale="20 20 20"
         material="color: red;"
-        gps-entity-place="latitude: 39.110624; longitude: 26.565453;"
+        gps-entity-place="latitude: 39.08474496041421; longitude: 26.56910606288118;"
       ></a-box>
 
-      <!-- Real GPS test (use outdoors): -->
-      <a-camera gps-camera rotation-reader></a-camera>
-
-      <!-- Fake-location test (swap in instead of the line above):
+      <!-- Fake-location test (active): -->
       <a-camera
-        gps-camera="simulateLatitude: 39.109600; simulateLongitude: 26.565453;"
+        gps-camera="simulateLatitude: 39.08452879519235; simulateLongitude: 26.56913732159621;"
         rotation-reader
       ></a-camera>
+
+      <!-- Real GPS test (swap in instead of the line above):
+      <a-camera gps-camera rotation-reader></a-camera>
       -->
     </a-scene>
 
     <script>
-      var TARGET = { lat: 39.110624, lon: 26.565453 };
+      var TARGET = { lat: 39.08474496041421, lon: 26.56910606288118 };
       var statusEl = document.getElementById("gps-status");
       var gotFix = false;
 
