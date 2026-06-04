@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>WebAR - Layers, Compass & Stable Altitude</title>
+    <title>WebAR - Layers & Compass Sync</title>
     
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
@@ -12,7 +12,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
-      // 1. COMPONENT: Manages Scale, Clickability, 3D Materials, and Altitude Stability
+      // 1. COMPONENT: Manages Scale, Clickability, and 3D Materials
       AFRAME.registerComponent('manage-distance-state', {
         schema: { 
           unlockDistance: { type: 'number', default: 100 } // 100 meters
@@ -30,10 +30,6 @@
           var camera = document.querySelector('a-camera').object3D;
           var wrapper = this.el.object3D;
           
-          // --- PREVENT GPS BOUNCING ---
-          // Lock the marker's height to the camera's height 
-          wrapper.position.y = camera.position.y;
-
           var distance = wrapper.position.distanceTo(camera.position);
           var newScale = Math.max(5, distance * 0.1); 
           this.el.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
