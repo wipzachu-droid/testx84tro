@@ -8,32 +8,21 @@
     <style>
       * { box-sizing: border-box; }
       #ui {
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        pointer-events: none;
-        font-family: sans-serif;
-        color: #fff;
+        position: fixed; inset: 0; z-index: 9999;
+        pointer-events: none; font-family: sans-serif; color: #fff;
       }
       #status {
-        position: absolute;
-        top: 0; left: 0; right: 0;
-        padding: 10px 12px;
-        background: rgba(0,0,0,0.55);
-        font-size: 14px;
-        line-height: 1.5;
+        position: absolute; top: 0; left: 0; right: 0;
+        padding: 10px 12px; background: rgba(0,0,0,0.55);
+        font-size: 14px; line-height: 1.5;
       }
       #status.ok { background: rgba(20,140,40,0.8); }
       #status.err { background: rgba(170,30,30,0.85); }
       #status .big { font-weight: bold; font-size: 15px; }
 
-      /* arrows */
       .arrow {
-        position: absolute;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 90px; height: 90px;
-        opacity: 0.25;
+        position: absolute; top: 50%; transform: translateY(-50%);
+        width: 90px; height: 90px; opacity: 0.25;
         transition: opacity 0.2s, transform 0.2s;
         display: flex; align-items: center; justify-content: center;
       }
@@ -44,15 +33,10 @@
       #arrow-left.active  { transform: translateY(-50%) scale(1.15); }
       #arrow-right.active { transform: translateY(-50%) scale(1.15); }
 
-      /* centre "straight ahead" */
       #center {
-        position: absolute;
-        top: 38%; left: 50%;
-        transform: transl(-50%,-50%);
-        transform: translateX(-50%);
-        opacity: 0;
-        transition: opacity 0.2s;
-        text-align: center;
+        position: absolute; top: 38%; left: 50%;
+        transform: translateX(-50%); opacity: 0;
+        transition: opacity 0.2s; text-align: center;
       }
       #center.active { opacity: 1; }
       #center .ring {
@@ -60,19 +44,12 @@
         border: 5px solid #2ec27e; border-radius: 50%;
         box-shadow: 0 0 14px rgba(46,194,126,0.8);
       }
-      #center .label {
-        font-weight: bold; font-size: 15px;
-        text-shadow: 0 0 4px #000;
-      }
+      #center .label { font-weight: bold; font-size: 15px; text-shadow: 0 0 4px #000; }
 
-      /* desktop manual heading control */
       #manual {
-        position: absolute;
-        bottom: 0; left: 0; right: 0;
-        padding: 10px 14px;
-        background: rgba(0,0,0,0.55);
-        pointer-events: auto;
-        font-size: 13px;
+        position: absolute; bottom: 0; left: 0; right: 0;
+        padding: 10px 14px; background: rgba(0,0,0,0.55);
+        pointer-events: auto; font-size: 13px;
       }
       #manual input { width: 100%; }
     </style>
@@ -83,6 +60,13 @@
       embedded
       arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
     >
+      <a-box
+        id="target"
+        scale="20 20 20"
+        material="color: red;"
+        gps-entity-place="latitude: 39.08474496041421; longitude: 26.56910606288118;"
+      ></a-box>
+
       <a-camera
         gps-camera="simulateLatitude: 39.08452879519235; simulateLongitude: 26.56913732159621;"
         rotation-reader
@@ -123,7 +107,7 @@
       var manualReadout = document.getElementById("manual-readout");
 
       var current = { lat: ME.lat, lon: ME.lon };
-      var heading = 0;          // device compass heading, degrees
+      var heading = 0;
       var haveCompass = false;
 
       function toRad(d){ return d * Math.PI / 180; }
@@ -136,8 +120,6 @@
                 Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)*Math.sin(dLon/2);
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
       }
-
-      // bearing FROM me TO target, 0 = north, clockwise
       function bearing(lat1, lon1, lat2, lon2) {
         var y = Math.sin(toRad(lon2-lon1)) * Math.cos(toRad(lat2));
         var x = Math.cos(toRad(lat1))*Math.sin(toRad(lat2)) -
@@ -148,8 +130,6 @@
       function update() {
         var d = distance(current.lat, current.lon, TARGET.lat, TARGET.lon);
         var b = bearing(current.lat, current.lon, TARGET.lat, TARGET.lon);
-
-        // relative angle: where target is vs where I'm facing (-180..180)
         var rel = ((b - heading + 540) % 360) - 180;
 
         statusEl.className = "ok";
@@ -161,7 +141,7 @@
                       rel > 0 ? 'right ' + Math.abs(rel).toFixed(0) + '°' :
                                 'left '  + Math.abs(rel).toFixed(0) + '°');
 
-        var THRESH = 12; // degrees considered "ahead"
+        var THRESH = 12;
         aL.classList.toggle("active", rel < -THRESH);
         aR.classList.toggle("active", rel >  THRESH);
         aC.classList.toggle("active", Math.abs(rel) <= THRESH);
@@ -176,7 +156,6 @@
         }
       }
 
-      // ---- position from AR.js / browser ----
       function setPos(lat, lon){ current.lat = lat; current.lon = lon; update(); }
 
       ["gps-camera-update-position","gps-update-position"].forEach(function(name){
@@ -196,32 +175,31 @@
         );
       }
 
-      // ---- heading from device compass ----
       function onOrient(e) {
         var h = null;
-        if (e.webkitCompassHeading != null) h = e.webkitCompassHeading;      // iOS
-        else if (e.alpha != null) h = (360 - e.alpha) % 360;                 // others
+        if (e.webkitCompassHeading != null) h = e.webkitCompassHeading;
+        else if (e.alpha != null) h = (360 - e.alpha) % 360;
         if (h != null) { heading = h; haveCompass = true; update(); }
       }
       function startCompass() {
         if (typeof DeviceOrientationEvent !== "undefined" &&
             typeof DeviceOrientationEvent.requestPermission === "function") {
           DeviceOrientationEvent.requestPermission().then(function(state){
-            if (state === "granted") window.addEventListener("deviceorientationabsolute", onOrient, true),
-                                     window.addEventListener("deviceorientation", onOrient, true);
+            if (state === "granted") {
+              window.addEventListener("deviceorientationabsolute", onOrient, true);
+              window.addEventListener("deviceorientation", onOrient, true);
+            }
           }).catch(function(){});
         } else {
           window.addEventListener("deviceorientationabsolute", onOrient, true);
           window.addEventListener("deviceorientation", onOrient, true);
         }
       }
-      // iOS needs a user gesture to grant orientation permission
       window.addEventListener("click", startCompass, { once: true });
       startCompass();
 
-      // ---- manual heading slider (desktop fallback) ----
       slider.addEventListener("input", function () {
-        if (!haveCompass) {            // only override when no real compass
+        if (!haveCompass) {
           heading = parseInt(slider.value, 10);
           manualReadout.textContent = "Manual heading (desktop): " + heading + "°";
           update();
