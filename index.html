@@ -5,17 +5,43 @@
     <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+    <style>
+      #gps-status {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 9999;
+        font-family: sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+        padding: 10px 12px;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.6);
+        transition: background 0.3s;
+      }
+      #gps-status.ok { background: rgba(20, 140, 40, 0.85); }
+      #gps-status.wait { background: rgba(180, 120, 0, 0.85); }
+      #gps-status.err { background: rgba(170, 30, 30, 0.9); }
+      #gps-status .big { font-weight: bold; font-size: 15px; }
+    </style>
   </head>
   <body style="margin: 0; overflow: hidden;">
+    <div id="gps-status" class="wait">
+      <span class="big">⏳ Waiting for location…</span>
+    </div>
+
     <a-scene
       vr-mode-ui="enabled: false"
       embedded
       arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
     >
       <a-image
+        id="target"
         src="assets/point.png"
         look-at="[gps-camera]"
         scale="20 20 20"
+        material="transparent: true; alphaTest: 0.5;"
         gps-entity-place="latitude: 39.109624; longitude: 26.565453;"
       ></a-image>
       <a-camera
@@ -23,5 +49,61 @@
         rotation-reader
       ></a-camera>
     </a-scene>
+
+    <script>
+      var TARGET = { lat: 39.109624, lon: 26.565453 };
+      var statusEl = document.getElementById("gps-status");
+
+      // Haversine distance in metres
+      function distance(lat1, lon1, lat2, lon2) {
+        var R = 6371000;
+        var dLat = (lat2 - lat1) * Math.PI / 180;
+        var dLon = (lon2 - lon1) * Math.PI / 180;
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      }
+
+      function setStatus(cls, html) {
+        statusEl.className = cls;
+        statusEl.innerHTML = html;
+      }
+
+      // AR.js fires this when it gets/updates a GPS position
+      window.addEventListener("gps-camera-update-position", function (e) {
+        var pos = e.detail.position; // { latitude, longitude }
+        var d = distance(pos.latitude, pos.longitude, TARGET.lat, TARGET.lon);
+        setStatus("ok",
+          '<span class="big">✅ Location OK</span><br>' +
+          'You: ' + pos.latitude.toFixed(6) + ', ' + pos.longitude.toFixed(6) + '<br>' +
+          'Distance to target: ' + d.toFixed(1) + ' m'
+        );
+      });
+
+      // Fired when the target entity has been placed in the scene
+      window.addEventListener("gps-entity-place-added", function () {
+        console.log("Target placed in scene.");
+      });
+
+      // Catch permission / sensor errors
+      window.addEventListener("gps-camera-error", function (e) {
+        setStatus("err",
+          '<span class="big">❌ Location error</span><br>' +
+          'Check GPS / permissions. See console for details.'
+        );
+        console.error("gps-camera-error", e.detail);
+      });
+
+      // Fallback timeout — if no position after 12s, warn
+      setTimeout(function () {
+        if (statusEl.className === "wait") {
+          setStatus("err",
+            '<span class="big">❌ No location yet</span><br>' +
+            'Allow location + camera, use HTTPS, try outdoors.'
+          );
+        }
+      }, 12000);
+    </script>
   </body>
 </html>
