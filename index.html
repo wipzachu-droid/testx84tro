@@ -1,32 +1,41 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <meta charset="utf-8">
-    <title>WebAR Red Box</title>
+    <meta charset="utf-8" />
+    <title>Simulated GPS WebAR</title>
     <!-- Import A-Frame -->
-    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+    <!-- Import AR.js with location-based features -->
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
   </head>
   <body style="margin: 0; overflow: hidden;">
     
-    <!-- Set up the A-Frame scene -->
-    <!-- webxr="referenceSpaceType: local" sets up a simulated local space -->
-    <a-scene webxr="referenceSpaceType: local">
-      
-      <!-- The Camera Entity -->
-      <a-entity camera position="0 1.6 0">
-        
-        <!-- 
-          The Red Box 
-          Positioned 0 on X and Y, and -2 on Z (which means 2 meters directly in front of the camera)
-        -->
-        <a-box 
-          color="red" 
-          position="0 0 -2" 
-          scale="0.5 0.5 0.5">
-        </a-box>
-        
-      </a-entity>
+    <!-- Set up the AR.js scene -->
+    <a-scene
+      vr-mode-ui="enabled: false"
+      arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
+    >
+      <!-- 
+        The Camera 
+        We use 'gps-camera' to enable location tracking and simulate your specific starting coordinates.
+      -->
+      <a-camera 
+        gps-camera="simulateLatitude: 39.108312993354; simulateLongitude: 26.556854892304536" 
+        rotation-reader>
+      </a-camera>
+
+      <!-- 
+        The Red Box
+        Placed at the exact GPS coordinates you requested using 'gps-entity-place'.
+      -->
+      <a-box 
+        color="red" 
+        gps-entity-place="latitude: 39.10862572516812; longitude: 26.556999034520903;" 
+        scale="5 5 5"
+        position="0 2 0">
+      </a-box>
       
     </a-scene>
+    
   </body>
 </html>
