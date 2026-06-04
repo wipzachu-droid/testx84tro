@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>WebAR - Layers & Compass Sync</title>
+    <title>WebAR - Ultimate Layered Compass & Proximity</title>
     
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
@@ -12,7 +12,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
-      // 1. COMPONENT: Manages Scale, Clickability, and 3D Materials
+      // 1. COMPONENT: Manages Scale, Materials, and Altitude Stability
       AFRAME.registerComponent('manage-distance-state', {
         schema: { 
           unlockDistance: { type: 'number', default: 100 } // 100 meters
@@ -30,6 +30,10 @@
           var camera = document.querySelector('a-camera').object3D;
           var wrapper = this.el.object3D;
           
+          // --- PREVENT GPS BOUNCING ---
+          // Lock the marker's height to the camera's height 
+          wrapper.position.y = camera.position.y;
+
           var distance = wrapper.position.distanceTo(camera.position);
           var newScale = Math.max(5, distance * 0.1); 
           this.el.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
@@ -45,7 +49,7 @@
           var modelEntity = this.el.querySelector('.shape-model');
           var text = this.el.querySelector('a-text');
           
-          // CRITICAL: Check if the current layer is actually visible
+          // Check if the current layer is actually visible
           var isVisible = this.el.getAttribute('visible');
           
           // --- 1. A-FRAME ATTRIBUTES ---
@@ -81,12 +85,40 @@
         }
       });
 
-      // 2. COMPONENT: Clickable Link Failsafe
+      // 2. COMPONENT: Clickable Link Failsafe with Cooldown Timer
       AFRAME.registerComponent('open-link', {
         schema: { url: { type: 'string', default: '' } },
         init: function () {
+          this.enabledTime = 0;
+
+          // Watch to see exactly when it becomes clickable
+          var observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+              if (mutation.attributeName === "class") {
+                if (this.el.classList.contains('clickable')) {
+                  if (this.enabledTime === 0) this.enabledTime = Date.now();
+                } else {
+                  this.enabledTime = 0; // Reset if out of range
+                }
+              }
+            });
+          });
+          
+          observer.observe(this.el, { attributes: true });
+
           this.el.addEventListener('click', (evt) => {
+            // Failsafe 1: Parent layer must be visible
             if (!this.el.parentEl.getAttribute('visible')) return;
+            
+            // Failsafe 2: Must actively have the clickable class
+            if (!this.el.classList.contains('clickable')) return;
+
+            // Failsafe 3: Anti-Auto-Click Cooldown (1 second)
+            if (Date.now() - this.enabledTime < 1000) {
+              console.log("Ignored accidental auto-click");
+              return;
+            }
+
             if (this.data.url && this.data.url !== '#') {
               window.location.href = this.data.url;
             }
