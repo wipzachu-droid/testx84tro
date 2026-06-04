@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>WebAR - Proximity Unlock</title>
+    <title>WebAR - Proximity Unlock (3D Models)</title>
     
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
@@ -12,10 +12,9 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
-      // 1. COMPONENT: Manages Scale, Color, Opacity, and Clickability based on distance and visibility
+      // 1. COMPONENT: Manages Scale and Clickability for 3D Models
       AFRAME.registerComponent('manage-distance-state', {
         schema: { 
-          originalColor: { type: 'string', default: 'red' },
           unlockDistance: { type: 'number', default: 100 } // 100 meters
         },
         tick: function () {
@@ -25,51 +24,31 @@
           // Calculate distance in meters
           var distance = wrapper.position.distanceTo(camera.position);
           
-          // 1. Dynamic Scaling (So it's visible from far away)
+          // Dynamic Scaling (So it's visible from far away)
           var newScale = Math.max(5, distance * 0.1); 
           this.el.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
 
-          // 2. Proximity Unlock Logic
-          var box = this.el.querySelector('.shape-box');
-          var img = this.el.querySelector('.shape-image');
+          // Proximity Unlock Logic
+          var model = this.el.querySelector('.shape-model');
           var text = this.el.querySelector('a-text');
           
           if (distance <= this.data.unlockDistance) {
             // ACTIVE STATE (Within 100m)
-            if (box) {
-              box.setAttribute('color', this.data.originalColor);
-              box.setAttribute('opacity', '1.0');
-              if (box.getAttribute('visible')) box.classList.add('clickable');
-            }
-            if (img) {
-              img.setAttribute('opacity', '1.0');
-              if (img.getAttribute('visible')) img.classList.add('clickable');
-            }
+            if (model) model.classList.add('clickable');
             if (text) text.setAttribute('opacity', '1.0');
           } else {
             // INACTIVE STATE (Further than 100m)
-            if (box) {
-              box.setAttribute('color', 'gray');
-              box.setAttribute('opacity', '0.3');
-              box.classList.remove('clickable');
-            }
-            if (img) {
-              img.setAttribute('opacity', '0.3');
-              img.classList.remove('clickable');
-            }
+            if (model) model.classList.remove('clickable');
             if (text) text.setAttribute('opacity', '0.5'); 
           }
         }
       });
 
-      // 2. COMPONENT: Clickable Link (Failsafe prevents clicking hidden items)
+      // 2. COMPONENT: Clickable Link Failsafe
       AFRAME.registerComponent('open-link', {
         schema: { url: { type: 'string', default: '' } },
         init: function () {
           this.el.addEventListener('click', (evt) => {
-            // Failsafe: Ignore the click if the element is invisible
-            if (!this.el.getAttribute('visible')) return;
-            
             if (this.data.url && this.data.url !== '#') {
               window.location.href = this.data.url;
             }
@@ -83,36 +62,11 @@
       #ar-container { height: 50%; width: 100%; position: relative; }
       #map-container { height: 50%; width: 100%; }
       #ar-container video { object-fit: cover; }
-      
-      /* UI Button styling */
-      #ui-controls {
-        position: absolute;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 9999;
-      }
-      button {
-        padding: 10px 20px;
-        font-size: 16px;
-        background-color: #ffffff;
-        border: 2px solid #333;
-        border-radius: 8px;
-        cursor: pointer;
-        box-shadow: 0px 4px 6px rgba(0,0,0,0.3);
-      }
-      button:active {
-        background-color: #e0e0e0;
-      }
     </style>
   </head>
   <body>
     
     <div id="ar-container">
-      <div id="ui-controls">
-        <button id="toggleMarkerBtn">Toggle Image / Box</button>
-      </div>
-
       <a-scene
         embedded
         vr-mode-ui="enabled: false"
@@ -123,73 +77,62 @@
         <a-camera gps-camera rotation-reader near="0.1" far="5000"></a-camera>
 
         <a-assets>
-          <img id="pin" src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png">
+          <a-asset-item id="custom-model" src="assets/mappoint.glb"></a-asset-item>
         </a-assets>
 
-        <a-entity gps-entity-place="latitude: 39.109621384126825; longitude: 26.565955633631958;" manage-distance-state="originalColor: yellow">
-          <a-box class="shape-box" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0" visible="true"></a-box>
-          <a-image class="shape-image" src="#pin" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0" scale="1.5 2.5 1.5" visible="false"></a-image>
-          <a-text value="Far Box" color="white" align="center" position="0 1.5 0" look-at="[gps-camera]"></a-text>
+        <a-entity gps-entity-place="latitude: 39.109621384126825; longitude: 26.565955633631958;" manage-distance-state>
+          <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0"></a-entity>
+          <a-text value="Far Location" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity gps-entity-place="latitude: 39.10857606378002; longitude: 26.556846506429483;" manage-distance-state="originalColor: yellow">
-          <a-box class="shape-box" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0" visible="true"></a-box>
-          <a-image class="shape-image" src="#pin" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0" scale="1.5 2.5 1.5" visible="false"></a-image>
-          <a-text value="Near Box" color="white" align="center" position="0 1.5 0" look-at="[gps-camera]"></a-text>
+        <a-entity gps-entity-place="latitude: 39.10857606378002; longitude: 26.556846506429483;" manage-distance-state>
+          <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0"></a-entity>
+          <a-text value="Near Location" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity gps-entity-place="latitude: 39.111285807437675; longitude: 26.55744215838956;" manage-distance-state="originalColor: red">
-          <a-box class="shape-box" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0" visible="true"></a-box>
-          <a-image class="shape-image" src="#pin" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0" scale="1.5 2.5 1.5" visible="false"></a-image>
-          <a-text value="Red Box" color="white" align="center" position="0 1.5 0" look-at="[gps-camera]"></a-text>
+        <a-entity gps-entity-place="latitude: 39.111285807437675; longitude: 26.55744215838956;" manage-distance-state>
+          <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0"></a-entity>
+          <a-text value="Location 3" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity gps-entity-place="latitude: 39.11161250638677; longitude: 26.55834494382977;" manage-distance-state="originalColor: blue">
-          <a-box class="shape-box" open-link="url: https://en.wikipedia.org/wiki/Blue" position="0 0 0" visible="true"></a-box>
-          <a-image class="shape-image" src="#pin" open-link="url: https://en.wikipedia.org/wiki/Blue" position="0 0 0" scale="1.5 2.5 1.5" visible="false"></a-image>
-          <a-text value="Blue Box" color="white" align="center" position="0 1.5 0" look-at="[gps-camera]"></a-text>
+        <a-entity gps-entity-place="latitude: 39.11161250638677; longitude: 26.55834494382977;" manage-distance-state>
+          <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Blue" position="0 0 0"></a-entity>
+          <a-text value="Location 4" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity gps-entity-place="latitude: 39.11245132108184; longitude: 26.558762197607667;" manage-distance-state="originalColor: green">
-          <a-box class="shape-box" open-link="url: https://en.wikipedia.org/wiki/Green" position="0 0 0" visible="true"></a-box>
-          <a-image class="shape-image" src="#pin" open-link="url: https://en.wikipedia.org/wiki/Green" position="0 0 0" scale="1.5 2.5 1.5" visible="false"></a-image>
-          <a-text value="Green Box" color="white" align="center" position="0 1.5 0" look-at="[gps-camera]"></a-text>
+        <a-entity gps-entity-place="latitude: 39.11245132108184; longitude: 26.558762197607667;" manage-distance-state>
+          <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Green" position="0 0 0"></a-entity>
+          <a-text value="Location 5" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity gps-entity-place="latitude: 39.113069388689055; longitude: 26.560013958978683;" manage-distance-state="originalColor: yellow">
-          <a-box class="shape-box" open-link="url: https://en.wikipedia.org/wiki/Yellow" position="0 0 0" visible="true"></a-box>
-          <a-image class="shape-image" src="#pin" open-link="url: https://en.wikipedia.org/wiki/Yellow" position="0 0 0" scale="1.5 2.5 1.5" visible="false"></a-image>
-          <a-text value="Yellow Box" color="white" align="center" position="0 1.5 0" look-at="[gps-camera]"></a-text>
+        <a-entity gps-entity-place="latitude: 39.113069388689055; longitude: 26.560013958978683;" manage-distance-state>
+          <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Yellow" position="0 0 0"></a-entity>
+          <a-text value="Location 6" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity gps-entity-place="latitude: 39.11321360368077; longitude: 26.561102612009524;" manage-distance-state="originalColor: purple">
-          <a-box class="shape-box" open-link="url: https://en.wikipedia.org/wiki/Purple" position="0 0 0" visible="true"></a-box>
-          <a-image class="shape-image" src="#pin" open-link="url: https://en.wikipedia.org/wiki/Purple" position="0 0 0" scale="1.5 2.5 1.5" visible="false"></a-image>
-          <a-text value="Purple Box" color="white" align="center" position="0 1.5 0" look-at="[gps-camera]"></a-text>
+        <a-entity gps-entity-place="latitude: 39.11321360368077; longitude: 26.561102612009524;" manage-distance-state>
+          <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Purple" position="0 0 0"></a-entity>
+          <a-text value="Location 7" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity gps-entity-place="latitude: 39.11293694608975; longitude: 26.562718522083177;" manage-distance-state="originalColor: orange">
-          <a-box class="shape-box" open-link="url: https://en.wikipedia.org/wiki/Orange_(colour)" position="0 0 0" visible="true"></a-box>
-          <a-image class="shape-image" src="#pin" open-link="url: https://en.wikipedia.org/wiki/Orange_(colour)" position="0 0 0" scale="1.5 2.5 1.5" visible="false"></a-image>
-          <a-text value="Orange Box" color="white" align="center" position="0 1.5 0" look-at="[gps-camera]"></a-text>
+        <a-entity gps-entity-place="latitude: 39.11293694608975; longitude: 26.562718522083177;" manage-distance-state>
+          <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Orange_(colour)" position="0 0 0"></a-entity>
+          <a-text value="Location 8" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity gps-entity-place="latitude: 39.112522245165536; longitude: 26.55472019777063;" manage-distance-state="originalColor: cyan">
-          <a-box class="shape-box" open-link="url: #" position="0 0 0" visible="true"></a-box>
-          <a-image class="shape-image" src="#pin" open-link="url: #" position="0 0 0" scale="1.5 2.5 1.5" visible="false"></a-image>
-          <a-text value="New Loc 1" color="white" align="center" position="0 1.5 0" look-at="[gps-camera]"></a-text>
+        <a-entity gps-entity-place="latitude: 39.112522245165536; longitude: 26.55472019777063;" manage-distance-state>
+          <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: #" position="0 0 0"></a-entity>
+          <a-text value="New Loc 1" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity gps-entity-place="latitude: 39.11313293752422; longitude: 26.561410299736572;" manage-distance-state="originalColor: cyan">
-          <a-box class="shape-box" open-link="url: #" position="0 0 0" visible="true"></a-box>
-          <a-image class="shape-image" src="#pin" open-link="url: #" position="0 0 0" scale="1.5 2.5 1.5" visible="false"></a-image>
-          <a-text value="New Loc 2" color="white" align="center" position="0 1.5 0" look-at="[gps-camera]"></a-text>
+        <a-entity gps-entity-place="latitude: 39.11313293752422; longitude: 26.561410299736572;" manage-distance-state>
+          <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: #" position="0 0 0"></a-entity>
+          <a-text value="New Loc 2" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity gps-entity-place="latitude: 39.11116343567997; longitude: 26.555408884737712;" manage-distance-state="originalColor: cyan">
-          <a-box class="shape-box" open-link="url: #" position="0 0 0" visible="true"></a-box>
-          <a-image class="shape-image" src="#pin" open-link="url: #" position="0 0 0" scale="1.5 2.5 1.5" visible="false"></a-image>
-          <a-text value="New Loc 3" color="white" align="center" position="0 1.5 0" look-at="[gps-camera]"></a-text>
+        <a-entity gps-entity-place="latitude: 39.11116343567997; longitude: 26.555408884737712;" manage-distance-state>
+          <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: #" position="0 0 0"></a-entity>
+          <a-text value="New Loc 3" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
         </a-entity>
 
       </a-scene>
@@ -198,31 +141,6 @@
     <div id="map-container"></div>
 
     <script>
-      // --- Toggle Logic ---
-      let isImageMode = false;
-      
-      // Stop UI clicks from bleeding into the AR scene behind it
-      document.getElementById('toggleMarkerBtn').addEventListener('pointerdown', (e) => {
-        e.stopPropagation(); 
-      });
-
-      document.getElementById('toggleMarkerBtn').addEventListener('click', (e) => {
-        e.stopPropagation(); 
-        isImageMode = !isImageMode;
-        
-        // Toggle boxes
-        document.querySelectorAll('.shape-box').forEach(el => {
-          el.setAttribute('visible', !isImageMode);
-          if (isImageMode) el.classList.remove('clickable'); // Safely remove hit target
-        });
-
-        // Toggle images
-        document.querySelectorAll('.shape-image').forEach(el => {
-          el.setAttribute('visible', isImageMode);
-          if (!isImageMode) el.classList.remove('clickable'); // Safely remove hit target
-        });
-      });
-
       // --- Map Logic ---
       var map = L.map('map-container').setView([39.1124, 26.5595], 15);
 
@@ -232,14 +150,14 @@
       }).addTo(map);
 
       var locations = [
-        { lat: 39.109621384126825, lng: 26.565955633631958, name: "Near Box", url: "https://en.wikipedia.org/wiki/Red" },
-        { lat: 39.10857606378002, lng: 26.556846506429483, name: "Near Box", url: "https://en.wikipedia.org/wiki/Red" },
-        { lat: 39.111285807437675, lng: 26.55744215838956, name: "Red Box", url: "https://en.wikipedia.org/wiki/Red" },
-        { lat: 39.11161250638677, lng: 26.55834494382977, name: "Blue Box", url: "https://en.wikipedia.org/wiki/Blue" },
-        { lat: 39.11245132108184, lng: 26.558762197607667, name: "Green Box", url: "https://en.wikipedia.org/wiki/Green" },
-        { lat: 39.113069388689055, lng: 26.560013958978683, name: "Yellow Box", url: "https://en.wikipedia.org/wiki/Yellow" },
-        { lat: 39.11321360368077, lng: 26.561102612009524, name: "Purple Box", url: "https://en.wikipedia.org/wiki/Purple" },
-        { lat: 39.11293694608975, lng: 26.562718522083177, name: "Orange Box", url: "https://en.wikipedia.org/wiki/Orange_(colour)" },
+        { lat: 39.109621384126825, lng: 26.565955633631958, name: "Far Location", url: "https://en.wikipedia.org/wiki/Red" },
+        { lat: 39.10857606378002, lng: 26.556846506429483, name: "Near Location", url: "https://en.wikipedia.org/wiki/Red" },
+        { lat: 39.111285807437675, lng: 26.55744215838956, name: "Location 3", url: "https://en.wikipedia.org/wiki/Red" },
+        { lat: 39.11161250638677, lng: 26.55834494382977, name: "Location 4", url: "https://en.wikipedia.org/wiki/Blue" },
+        { lat: 39.11245132108184, lng: 26.558762197607667, name: "Location 5", url: "https://en.wikipedia.org/wiki/Green" },
+        { lat: 39.113069388689055, lng: 26.560013958978683, name: "Location 6", url: "https://en.wikipedia.org/wiki/Yellow" },
+        { lat: 39.11321360368077, lng: 26.561102612009524, name: "Location 7", url: "https://en.wikipedia.org/wiki/Purple" },
+        { lat: 39.11293694608975, lng: 26.562718522083177, name: "Location 8", url: "https://en.wikipedia.org/wiki/Orange_(colour)" },
         // New Locations
         { lat: 39.112522245165536, lng: 26.55472019777063, name: "New Loc 1", url: "#" },
         { lat: 39.11313293752422, lng: 26.561410299736572, name: "New Loc 2", url: "#" },
