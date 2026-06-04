@@ -2,22 +2,65 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>WebAR + Tracking Map</title>
+    <title>WebAR - Proximity Unlock</title>
     
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+    
+    <script src="https://unpkg.com/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js"></script>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
-      AFRAME.registerComponent('scale-by-distance', {
+      // 1. NEW COMPONENT: Manages Scale, Color, Opacity, and Clickability based on distance
+      AFRAME.registerComponent('manage-distance-state', {
+        schema: { 
+          originalColor: { type: 'string', default: 'red' },
+          unlockDistance: { type: 'number', default: 100 } // 100 meters
+        },
         tick: function () {
           var camera = document.querySelector('a-camera').object3D;
-          var box = this.el.object3D;
-          var distance = box.position.distanceTo(camera.position);
+          var wrapper = this.el.object3D;
+          
+          // Calculate distance in meters
+          var distance = wrapper.position.distanceTo(camera.position);
+          
+          // 1. Dynamic Scaling (So it's visible from far away)
           var newScale = Math.max(5, distance * 0.1); 
           this.el.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
+
+          // 2. Proximity Unlock Logic
+          var box = this.el.querySelector('a-box');
+          var text = this.el.querySelector('a-text');
+          
+          if (!box) return;
+
+          if (distance <= this.data.unlockDistance) {
+            // ACTIVE STATE (Within 100m)
+            box.setAttribute('color', this.data.originalColor);
+            box.setAttribute('opacity', '1.0');
+            box.classList.add('clickable'); // Make it tap-able
+            if (text) text.setAttribute('opacity', '1.0');
+          } else {
+            // INACTIVE STATE (Further than 100m)
+            box.setAttribute('color', 'gray');
+            box.setAttribute('opacity', '0.3'); // Make it a transparent ghost
+            box.classList.remove('clickable'); // Remove tap-ability
+            if (text) text.setAttribute('opacity', '0.5'); // Fade text slightly
+          }
+        }
+      });
+
+      // 2. Clickable Link Component (Same Tab)
+      AFRAME.registerComponent('open-link', {
+        schema: { url: { type: 'string', default: '' } },
+        init: function () {
+          this.el.addEventListener('click', () => {
+            if (this.data.url) {
+              window.location.href = this.data.url;
+            }
+          });
         }
       });
     </script>
@@ -36,54 +79,73 @@
         embedded
         vr-mode-ui="enabled: false"
         arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
+        cursor="rayOrigin: mouse"
+        raycaster="objects: .clickable"
       >
         <a-camera gps-camera rotation-reader near="0.1" far="5000"></a-camera>
 
-        <a-box color="red" gps-entity-place="latitude: 39.111285807437675; longitude: 26.55744215838956;" position="0 5 0" scale-by-distance></a-box>
-        <a-box color="blue" gps-entity-place="latitude: 39.11161250638677; longitude: 26.55834494382977;" position="0 5 0" scale-by-distance></a-box>
-        <a-box color="green" gps-entity-place="latitude: 39.11245132108184; longitude: 26.558762197607667;" position="0 5 0" scale-by-distance></a-box>
-        <a-box color="yellow" gps-entity-place="latitude: 39.113069388689055; longitude: 26.560013958978683;" position="0 5 0" scale-by-distance></a-box>
-        <a-box color="purple" gps-entity-place="latitude: 39.11321360368077; longitude: 26.561102612009524;" position="0 5 0" scale-by-distance></a-box>
-        <a-box color="orange" gps-entity-place="latitude: 39.11293694608975; longitude: 26.562718522083177;" position="0 5 0" scale-by-distance></a-box>
+        <a-entity gps-entity-place="latitude: 39.111285807437675; longitude: 26.55744215838956;" manage-distance-state="originalColor: red">
+          <a-box open-link="url: https://en.wikipedia.org/wiki/Red" position="0 5 0"></a-box>
+          <a-text value="Red Box" color="white" align="center" position="0 7 0" look-at="[gps-camera]"></a-text>
+        </a-entity>
+
+        <a-entity gps-entity-place="latitude: 39.11161250638677; longitude: 26.55834494382977;" manage-distance-state="originalColor: blue">
+          <a-box open-link="url: https://en.wikipedia.org/wiki/Blue" position="0 5 0"></a-box>
+          <a-text value="Blue Box" color="white" align="center" position="0 7 0" look-at="[gps-camera]"></a-text>
+        </a-entity>
+
+        <a-entity gps-entity-place="latitude: 39.11245132108184; longitude: 26.558762197607667;" manage-distance-state="originalColor: green">
+          <a-box open-link="url: https://en.wikipedia.org/wiki/Green" position="0 5 0"></a-box>
+          <a-text value="Green Box" color="white" align="center" position="0 7 0" look-at="[gps-camera]"></a-text>
+        </a-entity>
+
+        <a-entity gps-entity-place="latitude: 39.113069388689055; longitude: 26.560013958978683;" manage-distance-state="originalColor: yellow">
+          <a-box open-link="url: https://en.wikipedia.org/wiki/Yellow" position="0 5 0"></a-box>
+          <a-text value="Yellow Box" color="white" align="center" position="0 7 0" look-at="[gps-camera]"></a-text>
+        </a-entity>
+
+        <a-entity gps-entity-place="latitude: 39.11321360368077; longitude: 26.561102612009524;" manage-distance-state="originalColor: purple">
+          <a-box open-link="url: https://en.wikipedia.org/wiki/Purple" position="0 5 0"></a-box>
+          <a-text value="Purple Box" color="white" align="center" position="0 7 0" look-at="[gps-camera]"></a-text>
+        </a-entity>
+
+        <a-entity gps-entity-place="latitude: 39.11293694608975; longitude: 26.562718522083177;" manage-distance-state="originalColor: orange">
+          <a-box open-link="url: https://en.wikipedia.org/wiki/Orange_(colour)" position="0 5 0"></a-box>
+          <a-text value="Orange Box" color="white" align="center" position="0 7 0" look-at="[gps-camera]"></a-text>
+        </a-entity>
+
       </a-scene>
     </div>
 
     <div id="map-container"></div>
 
     <script>
-      // Initialize the Leaflet map
       var map = L.map('map-container').setView([39.1124, 26.5595], 15);
 
-      // Load the OpenStreetMap tiles
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '© OpenStreetMap'
       }).addTo(map);
 
-      // Define your box locations
       var locations = [
-        { lat: 39.111285807437675, lng: 26.55744215838956, name: "Red Box" },
-        { lat: 39.11161250638677, lng: 26.55834494382977, name: "Blue Box" },
-        { lat: 39.11245132108184, lng: 26.558762197607667, name: "Green Box" },
-        { lat: 39.113069388689055, lng: 26.560013958978683, name: "Yellow Box" },
-        { lat: 39.11321360368077, lng: 26.561102612009524, name: "Purple Box" },
-        { lat: 39.11293694608975, lng: 26.562718522083177, name: "Orange Box" }
+        { lat: 39.111285807437675, lng: 26.55744215838956, name: "Red Box", url: "https://en.wikipedia.org/wiki/Red" },
+        { lat: 39.11161250638677, lng: 26.55834494382977, name: "Blue Box", url: "https://en.wikipedia.org/wiki/Blue" },
+        { lat: 39.11245132108184, lng: 26.558762197607667, name: "Green Box", url: "https://en.wikipedia.org/wiki/Green" },
+        { lat: 39.113069388689055, lng: 26.560013958978683, name: "Yellow Box", url: "https://en.wikipedia.org/wiki/Yellow" },
+        { lat: 39.11321360368077, lng: 26.561102612009524, name: "Purple Box", url: "https://en.wikipedia.org/wiki/Purple" },
+        { lat: 39.11293694608975, lng: 26.562718522083177, name: "Orange Box", url: "https://en.wikipedia.org/wiki/Orange_(colour)" }
       ];
 
-      // Add box markers to the map
       locations.forEach(function(loc) {
-        L.marker([loc.lat, loc.lng]).addTo(map).bindPopup(loc.name);
+        var popupContent = `<b>${loc.name}</b><br><a href="${loc.url}">Click here to visit website</a>`;
+        L.marker([loc.lat, loc.lng]).addTo(map).bindPopup(popupContent);
       });
 
-      // --- USER TRACKING LOGIC ---
       var userMarker;
-
-      // watch: true tells the map to continuously listen for GPS updates
       map.locate({ watch: true, setView: true, maxZoom: 16, enableHighAccuracy: true });
 
       map.on('locationfound', function(e) {
         if (!userMarker) {
-          // If the marker doesn't exist yet, create it
           userMarker = L.circleMarker(e.latlng, { 
             radius: 8, 
             color: 'dodgerblue', 
@@ -91,13 +153,8 @@
             fillOpacity: 0.8 
           }).addTo(map).bindPopup("You are here");
         } else {
-          // If it exists, just update its coordinates so it glides to your new spot
           userMarker.setLatLng(e.latlng);
         }
-      });
-
-      map.on('locationerror', function(e) {
-        console.warn("Could not get location:", e.message);
       });
     </script>
     
