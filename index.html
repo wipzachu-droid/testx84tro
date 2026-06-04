@@ -84,6 +84,13 @@
       >
         <a-camera gps-camera rotation-reader near="0.1" far="5000"></a-camera>
 
+
+  <a-entity gps-entity-place="latitude: 39.10857606378002; longitude: 26.556846506429483;" manage-distance-state="originalColor: yellow">
+          <a-box open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0"></a-box>
+          <a-text value="Near Box" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
+        </a-entity>
+      
+
         <a-entity gps-entity-place="latitude: 39.111285807437675; longitude: 26.55744215838956;" manage-distance-state="originalColor: red">
           <a-box open-link="url: https://en.wikipedia.org/wiki/Red" position="0 0 0"></a-box>
           <a-text value="Red Box" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
