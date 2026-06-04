@@ -36,14 +36,12 @@
       embedded
       arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
     >
-      <a-image
+      <a-box
         id="target"
-        src="assets/point.png"
-        look-at="[gps-camera]"
         scale="20 20 20"
-        material="transparent: true; alphaTest: 0.5;"
-        gps-entity-place="latitude: 39.109624; longitude: 26.565453;"
-      ></a-image>
+        material="color: red;"
+        gps-entity-place="latitude: 39.110624; longitude: 26.565453;"
+      ></a-box>
 
       <!-- Real GPS test (use outdoors): -->
       <a-camera gps-camera rotation-reader></a-camera>
@@ -57,7 +55,7 @@
     </a-scene>
 
     <script>
-      var TARGET = { lat: 39.08451785964809, lon: 26.56924178443976 };
+      var TARGET = { lat: 39.110624, lon: 26.565453 };
       var statusEl = document.getElementById("gps-status");
       var gotFix = false;
 
@@ -82,7 +80,6 @@
           ' <span style="opacity:.7">(' + src + ')</span>';
       }
 
-      // Listen for all event names AR.js versions emit
       ["gps-camera-update-position", "gps-update-position"].forEach(function (name) {
         window.addEventListener(name, function (e) {
           var p = (e.detail && (e.detail.position || e.detail)) || {};
@@ -90,7 +87,6 @@
         });
       });
 
-      // Backup: poll the camera's own coords every second
       var poll = setInterval(function () {
         var cam = document.querySelector("[gps-camera]");
         if (!cam || !cam.components) return;
@@ -100,7 +96,6 @@
         }
       }, 1000);
 
-      // Independent check: raw browser geolocation (proves permission works)
       if (navigator.geolocation) {
         navigator.geolocation.watchPosition(
           function (pos) {
@@ -121,7 +116,6 @@
         statusEl.innerHTML = '<span class="big">❌ Geolocation not supported</span>';
       }
 
-      // Catch AR.js GPS errors
       window.addEventListener("gps-camera-error", function (e) {
         if (!gotFix) {
           statusEl.className = "err";
@@ -131,7 +125,6 @@
         }
       });
 
-      // Fallback warning after 20s
       setTimeout(function () {
         if (!gotFix) {
           statusEl.className = "err";
