@@ -11,7 +11,18 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    <script>
+  <script>
+      // --- NEW: GLOBAL STARTUP LOCK ---
+      // Prevents the "Center-Screen Spawn" bug while AR.js calibrates
+      window.arClicksAllowed = false;
+      window.addEventListener('load', () => {
+        // Wait exactly 3 seconds (3000ms) after page load before ANY clicks are allowed
+        setTimeout(() => {
+          window.arClicksAllowed = true;
+          console.log("AR calibration complete. Clicks unlocked.");
+        }, 3000);
+      });
+
       // 1. COMPONENT: Manages Scale, Materials, and Altitude Stability
       AFRAME.registerComponent('manage-distance-state', {
         schema: { 
@@ -30,9 +41,7 @@
           var camera = document.querySelector('a-camera').object3D;
           var wrapper = this.el.object3D;
           
-          // --- PREVENT GPS BOUNCING ---
-          // Lock the marker's height to the camera's height 
-          wrapper.position.y = camera.position.y;
+          wrapper.position.y = camera.position.y; // Lock height
 
           var distance = wrapper.position.distanceTo(camera.position);
           var newScale = Math.max(5, distance * 0.1); 
@@ -48,11 +57,8 @@
         updateState: function() {
           var modelEntity = this.el.querySelector('.shape-model');
           var text = this.el.querySelector('a-text');
-          
-          // Check if the current layer is actually visible
           var isVisible = this.el.getAttribute('visible');
           
-          // --- 1. A-FRAME ATTRIBUTES ---
           if (this.isUnlocked && isVisible) { 
             if (modelEntity) modelEntity.classList.add('clickable');
             if (text) text.setAttribute('opacity', '1.0');
@@ -61,14 +67,12 @@
             if (text) text.setAttribute('opacity', '0.5'); 
           }
 
-          // --- 2. THREE.JS MATERIAL TRAVERSAL ---
           if (modelEntity && this.modelLoaded) {
             var mesh = modelEntity.getObject3D('mesh');
             if (mesh) {
               mesh.traverse((node) => {
                 if (node.isMesh && node.material) {
                   node.material.transparent = true;
-                  
                   if (this.isUnlocked) {
                     node.material.opacity = 1.0;
                     node.material.color = new THREE.Color('#FFFFFF'); 
@@ -76,7 +80,6 @@
                     node.material.opacity = 0.4;
                     node.material.color = new THREE.Color('#555555'); 
                   }
-                  
                   node.material.needsUpdate = true;
                 }
               });
@@ -91,14 +94,13 @@
         init: function () {
           this.enabledTime = 0;
 
-          // Watch to see exactly when it becomes clickable
           var observer = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
               if (mutation.attributeName === "class") {
                 if (this.el.classList.contains('clickable')) {
                   if (this.enabledTime === 0) this.enabledTime = Date.now();
                 } else {
-                  this.enabledTime = 0; // Reset if out of range
+                  this.enabledTime = 0; 
                 }
               }
             });
@@ -107,18 +109,19 @@
           observer.observe(this.el, { attributes: true });
 
           this.el.addEventListener('click', (evt) => {
-            // Failsafe 1: Parent layer must be visible
+            // FAILSAFE 1: Global Startup Lock (Kills the initialization auto-click)
+            if (!window.arClicksAllowed) return;
+
+            // FAILSAFE 2: Parent layer must be visible
             if (!this.el.parentEl.getAttribute('visible')) return;
             
-            // Failsafe 2: Must actively have the clickable class
+            // FAILSAFE 3: Must actively have the clickable class
             if (!this.el.classList.contains('clickable')) return;
 
-            // Failsafe 3: Anti-Auto-Click Cooldown (1 second)
-            if (Date.now() - this.enabledTime < 1000) {
-              console.log("Ignored accidental auto-click");
-              return;
-            }
+            // FAILSAFE 4: Anti-Auto-Click Cooldown (Walk-in range delay)
+            if (Date.now() - this.enabledTime < 1000) return;
 
+            // Open URL
             if (this.data.url && this.data.url !== '#') {
               window.location.href = this.data.url;
             }
