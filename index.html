@@ -6,133 +6,56 @@
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
     <style>
-      #gps-status {
+      * { box-sizing: border-box; }
+      #ui {
         position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
+        inset: 0;
         z-index: 9999;
+        pointer-events: none;
         font-family: sans-serif;
+        color: #fff;
+      }
+      #status {
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        padding: 10px 12px;
+        background: rgba(0,0,0,0.55);
         font-size: 14px;
         line-height: 1.5;
-        padding: 10px 12px;
-        color: #fff;
-        background: rgba(0, 0, 0, 0.6);
-        transition: background 0.3s;
       }
-      #gps-status.ok { background: rgba(20, 140, 40, 0.85); }
-      #gps-status.wait { background: rgba(180, 120, 0, 0.85); }
-      #gps-status.err { background: rgba(170, 30, 30, 0.9); }
-      #gps-status .big { font-weight: bold; font-size: 15px; }
-    </style>
-  </head>
-  <body style="margin: 0; overflow: hidden;">
-    <div id="gps-status" class="wait">
-      <span class="big">⏳ Waiting for location…</span>
-    </div>
+      #status.ok { background: rgba(20,140,40,0.8); }
+      #status.err { background: rgba(170,30,30,0.85); }
+      #status .big { font-weight: bold; font-size: 15px; }
 
-    <a-scene
-      vr-mode-ui="enabled: false"
-      embedded
-      arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
-    >
-      <a-box
-        id="target"
-        scale="20 20 20"
-        material="color: red;"
-        gps-entity-place="latitude: 39.08474496041421; longitude: 26.56910606288118;"
-      ></a-box>
-
-      <!-- Fake-location test (active): -->
-      <a-camera
-        gps-camera="simulateLatitude: 39.08452879519235; simulateLongitude: 26.56913732159621;"
-        rotation-reader
-      ></a-camera>
-
-      <!-- Real GPS test (swap in instead of the line above):
-      <a-camera gps-camera rotation-reader></a-camera>
-      -->
-    </a-scene>
-
-    <script>
-      var TARGET = { lat: 39.08474496041421, lon: 26.56910606288118 };
-      var statusEl = document.getElementById("gps-status");
-      var gotFix = false;
-
-      function distance(lat1, lon1, lat2, lon2) {
-        var R = 6371000;
-        var dLat = (lat2 - lat1) * Math.PI / 180;
-        var dLon = (lon2 - lon1) * Math.PI / 180;
-        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      /* arrows */
+      .arrow {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 90px; height: 90px;
+        opacity: 0.25;
+        transition: opacity 0.2s, transform 0.2s;
+        display: flex; align-items: center; justify-content: center;
       }
+      #arrow-left  { left: 16px; }
+      #arrow-right { right: 16px; }
+      .arrow svg { width: 100%; height: 100%; filter: drop-shadow(0 0 6px rgba(0,0,0,0.6)); }
+      .arrow.active { opacity: 1; }
+      #arrow-left.active  { transform: translateY(-50%) scale(1.15); }
+      #arrow-right.active { transform: translateY(-50%) scale(1.15); }
 
-      function showOK(lat, lon, src) {
-        gotFix = true;
-        var d = distance(lat, lon, TARGET.lat, TARGET.lon);
-        statusEl.className = "ok";
-        statusEl.innerHTML =
-          '<span class="big">✅ Location OK</span><br>' +
-          'You: ' + lat.toFixed(6) + ', ' + lon.toFixed(6) + '<br>' +
-          'Distance to target: ' + d.toFixed(1) + ' m' +
-          ' <span style="opacity:.7">(' + src + ')</span>';
+      /* centre "straight ahead" */
+      #center {
+        position: absolute;
+        top: 38%; left: 50%;
+        transform: transl(-50%,-50%);
+        transform: translateX(-50%);
+        opacity: 0;
+        transition: opacity 0.2s;
+        text-align: center;
       }
-
-      ["gps-camera-update-position", "gps-update-position"].forEach(function (name) {
-        window.addEventListener(name, function (e) {
-          var p = (e.detail && (e.detail.position || e.detail)) || {};
-          if (p.latitude != null) showOK(p.latitude, p.longitude, "ar.js event");
-        });
-      });
-
-      var poll = setInterval(function () {
-        var cam = document.querySelector("[gps-camera]");
-        if (!cam || !cam.components) return;
-        var comp = cam.components["gps-camera"];
-        if (comp && comp.currentCoords) {
-          showOK(comp.currentCoords.latitude, comp.currentCoords.longitude, "poll");
-        }
-      }, 1000);
-
-      if (navigator.geolocation) {
-        navigator.geolocation.watchPosition(
-          function (pos) {
-            if (!gotFix) showOK(pos.coords.latitude, pos.coords.longitude, "browser");
-          },
-          function (err) {
-            if (!gotFix) {
-              statusEl.className = "err";
-              statusEl.innerHTML =
-                '<span class="big">❌ Geolocation: ' + err.message + '</span>';
-              console.error("geolocation error", err);
-            }
-          },
-          { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
-        );
-      } else {
-        statusEl.className = "err";
-        statusEl.innerHTML = '<span class="big">❌ Geolocation not supported</span>';
-      }
-
-      window.addEventListener("gps-camera-error", function (e) {
-        if (!gotFix) {
-          statusEl.className = "err";
-          statusEl.innerHTML =
-            '<span class="big">❌ AR.js location error</span><br>See console.';
-          console.error("gps-camera-error", e.detail);
-        }
-      });
-
-      setTimeout(function () {
-        if (!gotFix) {
-          statusEl.className = "err";
-          statusEl.innerHTML =
-            '<span class="big">❌ No position after 20s</span><br>' +
-            'Permissions look on — likely indoors / weak GPS, or simulate values active.';
-        }
-      }, 20000);
-    </script>
-  </body>
-</html>
+      #center.active { opacity: 1; }
+      #center .ring {
+        width: 70px; height: 70px; margin: 0 auto 6px;
+        border: 5px solid #2ec27e; border-radius: 50%;
+        box-shadow: 0 0 14px rgba(46,194,126,0.8
