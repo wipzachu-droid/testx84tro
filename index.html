@@ -12,16 +12,18 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
-      // --- NEW: GLOBAL STARTUP LOCK ---
-      // Prevents the "Center-Screen Spawn" bug while AR.js calibrates
-      window.arClicksAllowed = false;
-      window.addEventListener('load', () => {
-        // Wait exactly 3 seconds (3000ms) after page load before ANY clicks are allowed
-        setTimeout(() => {
-          window.arClicksAllowed = true;
-          console.log("AR calibration complete. Clicks unlocked.");
-        }, 3000);
-      });
+      // --- THE ULTIMATE ANTI-PHANTOM CLICKER ---
+      // Tracks actual physical human touches on the screen.
+      window.lastHumanTouch = 0;
+
+      function registerHumanTouch(e) {
+        // Ignore touches on the UI buttons, we only care about the AR canvas
+        if (e.target.tagName === 'BUTTON') return;
+        window.lastHumanTouch = Date.now();
+      }
+
+      window.addEventListener('touchend', registerHumanTouch, true);
+      window.addEventListener('mouseup', registerHumanTouch, true);
 
       // 1. COMPONENT: Manages Scale, Materials, and Altitude Stability
       AFRAME.registerComponent('manage-distance-state', {
@@ -41,7 +43,7 @@
           var camera = document.querySelector('a-camera').object3D;
           var wrapper = this.el.object3D;
           
-          wrapper.position.y = camera.position.y; // Lock height
+          wrapper.position.y = camera.position.y; // Lock height to prevent GPS bouncing
 
           var distance = wrapper.position.distanceTo(camera.position);
           var newScale = Math.max(5, distance * 0.1); 
@@ -88,38 +90,23 @@
         }
       });
 
-      // 2. COMPONENT: Clickable Link Failsafe with Cooldown Timer
+      // 2. COMPONENT: Clickable Link Failsafe with Hardware Touch Check
       AFRAME.registerComponent('open-link', {
         schema: { url: { type: 'string', default: '' } },
         init: function () {
-          this.enabledTime = 0;
-
-          var observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-              if (mutation.attributeName === "class") {
-                if (this.el.classList.contains('clickable')) {
-                  if (this.enabledTime === 0) this.enabledTime = Date.now();
-                } else {
-                  this.enabledTime = 0; 
-                }
-              }
-            });
-          });
-          
-          observer.observe(this.el, { attributes: true });
-
           this.el.addEventListener('click', (evt) => {
-            // FAILSAFE 1: Global Startup Lock (Kills the initialization auto-click)
-            if (!window.arClicksAllowed) return;
+            
+            // FAILSAFE 1: Did a human actually touch the screen in the last 1000ms?
+            if (Date.now() - window.lastHumanTouch > 1000) {
+              console.log("Blocked Phantom Click: No recent human touch detected.");
+              return;
+            }
 
-            // FAILSAFE 2: Parent layer must be visible
+            // FAILSAFE 2: Parent layer must be visibly toggled ON
             if (!this.el.parentEl.getAttribute('visible')) return;
             
-            // FAILSAFE 3: Must actively have the clickable class
+            // FAILSAFE 3: Must be actively within the 100m unlock range
             if (!this.el.classList.contains('clickable')) return;
-
-            // FAILSAFE 4: Anti-Auto-Click Cooldown (Walk-in range delay)
-            if (Date.now() - this.enabledTime < 1000) return;
 
             // Open URL
             if (this.data.url && this.data.url !== '#') {
