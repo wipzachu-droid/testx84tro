@@ -2,85 +2,156 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>WebAR - Ultimate Layered Compass & Proximity</title>
-    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>WALKING MEMORY — GPS WebAR Walk</title>
+
+    <!-- Pinned, stable releases (do NOT use githack/master in production) -->
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.5/aframe/build/aframe-ar.js"></script>
     <script src="https://unpkg.com/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js"></script>
-    
+
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <script>
-      // --- THE ULTIMATE ANTI-PHANTOM CLICKER ---
-      // Tracks actual physical human touches on the screen.
-      window.lastHumanTouch = 0;
+    <script>
+      /* =========================================================
+         WALKING MEMORY — GPS-only WebAR
+         Accuracy strategy (no markers, GPS only):
+           1. watchPosition(enableHighAccuracy) + convergence gating
+           2. Position smoothing (low-pass filter) to kill jitter
+           3. Tuned proximity ZONES, not a single point:
+                - APPROACH_RADIUS : story becomes visible/active
+                - UNLOCK_RADIUS   : story becomes clickable ("arrived")
+           4. Accuracy-adaptive: zones widen when GPS is poor
+           5. Live accuracy readout + manual "I'm here" fallback
+           6. Map is the spatial source of truth; AR is the arrival cue
+         ========================================================= */
 
-      function registerHumanTouch(e) {
-        // Ignore touches on the UI buttons, we only care about the AR canvas
-        if (e.target.tagName === 'BUTTON') return;
-        window.lastHumanTouch = Date.now();
+      // --- Tunable parameters (metres) ---
+      var CONFIG = {
+        APPROACH_RADIUS: 40,   // within this -> story shows in AR
+        UNLOCK_RADIUS:   20,   // within this -> story is clickable
+        ACCURACY_GOOD:   15,   // GPS accuracy (m) we treat as trustworthy
+        ACCURACY_MAX:    50,   // above this we warn + widen zones
+        SMOOTHING:       0.25  // low-pass factor (0=frozen,1=raw). Lower = smoother
+      };
+
+      // Shared live state written by the geolocation watcher
+      window.WM = {
+        userLat: null,
+        userLng: null,
+        accuracy: 9999,
+        hasFix: false
+      };
+
+      // Haversine distance in metres between two lat/lng
+      function distanceMeters(lat1, lng1, lat2, lng2) {
+        var R = 6371000;
+        var toRad = Math.PI / 180;
+        var dLat = (lat2 - lat1) * toRad;
+        var dLng = (lng2 - lng1) * toRad;
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) *
+                Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       }
 
-      window.addEventListener('touchend', registerHumanTouch, true);
-      window.addEventListener('mouseup', registerHumanTouch, true);
+      // Effective zone sizes grow when GPS accuracy is poor, so a noisy
+      // fix doesn't make "arrival" impossible. We add the reported error.
+      function effectiveUnlock() {
+        var pad = Math.max(0, window.WM.accuracy - CONFIG.ACCURACY_GOOD);
+        return CONFIG.UNLOCK_RADIUS + Math.min(pad, 40);
+      }
+      function effectiveApproach() {
+        var pad = Math.max(0, window.WM.accuracy - CONFIG.ACCURACY_GOOD);
+        return CONFIG.APPROACH_RADIUS + Math.min(pad, 60);
+      }
 
-      // 1. COMPONENT: Manages Scale, Materials, and Altitude Stability
-      AFRAME.registerComponent('manage-distance-state', {
-        schema: { 
-          unlockDistance: { type: 'number', default: 100 } // 100 meters
+      // Manual override: user taps "I'm here" to force-unlock nearest story
+      window.WM.manualUnlockId = null;
+
+      /* ---------------------------------------------------------
+         COMPONENT: proximity-driven state for each AR location.
+         Replaces the old camera-distance maths (which depended on
+         AR.js's internal placement and bounced with altitude).
+         We compute real-world distance from the smoothed user fix.
+         --------------------------------------------------------- */
+      AFRAME.registerComponent('story-location', {
+        schema: {
+          lat: { type: 'number' },
+          lng: { type: 'number' },
+          id:  { type: 'string' }
         },
-        init: function() {
-          this.isUnlocked = null;
+        init: function () {
+          this.state = null;        // 'far' | 'near' | 'unlocked'
           this.modelLoaded = false;
-          
-          this.el.addEventListener('model-loaded', () => {
-            this.modelLoaded = true;
-            this.updateState();
-          });
+          this.modelEntity = this.el.querySelector('.shape-model');
+          this.textEntity = this.el.querySelector('a-text');
+          var self = this;
+          if (this.modelEntity) {
+            this.modelEntity.addEventListener('model-loaded', function () {
+              self.modelLoaded = true;
+              self.apply();
+            });
+          }
         },
         tick: function () {
-          var camera = document.querySelector('a-camera').object3D;
-          var wrapper = this.el.object3D;
-          
-          wrapper.position.y = camera.position.y; // Lock height to prevent GPS bouncing
+          if (!window.WM.hasFix) return;
 
-          var distance = wrapper.position.distanceTo(camera.position);
-          var newScale = Math.max(5, distance * 0.1); 
-          this.el.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
+          var d = distanceMeters(
+            window.WM.userLat, window.WM.userLng,
+            this.data.lat, this.data.lng
+          );
 
-          var shouldBeUnlocked = distance <= this.data.unlockDistance;
+          var unlock = effectiveUnlock();
+          var approach = effectiveApproach();
 
-          if (this.isUnlocked !== shouldBeUnlocked) {
-            this.isUnlocked = shouldBeUnlocked;
-            this.updateState();
+          var manual = (window.WM.manualUnlockId === this.data.id);
+
+          var newState;
+          if (d <= unlock || manual) newState = 'unlocked';
+          else if (d <= approach)    newState = 'near';
+          else                       newState = 'far';
+
+          if (newState !== this.state) {
+            this.state = newState;
+            this.apply();
           }
         },
-        updateState: function() {
-          var modelEntity = this.el.querySelector('.shape-model');
-          var text = this.el.querySelector('a-text');
-          var isVisible = this.el.getAttribute('visible');
-          
-          if (this.isUnlocked && isVisible) { 
-            if (modelEntity) modelEntity.classList.add('clickable');
-            if (text) text.setAttribute('opacity', '1.0');
-          } else {
-            if (modelEntity) modelEntity.classList.remove('clickable'); 
-            if (text) text.setAttribute('opacity', '0.5'); 
+        apply: function () {
+          var visibleLayer = this.el.getAttribute('visible');
+          var model = this.modelEntity;
+          var text = this.textEntity;
+          var unlocked = (this.state === 'unlocked');
+          var near = (this.state === 'near');
+
+          // Clickability: ONLY when truly unlocked (arrived) and layer on
+          if (model) {
+            if (unlocked && visibleLayer) model.classList.add('clickable');
+            else model.classList.remove('clickable');
           }
 
-          if (modelEntity && this.modelLoaded) {
-            var mesh = modelEntity.getObject3D('mesh');
+          // Label opacity communicates state to the user
+          if (text) {
+            text.setAttribute('opacity', unlocked ? '1.0' : (near ? '0.7' : '0.35'));
+          }
+
+          // Material feedback: grey + translucent until arrived
+          if (model && this.modelLoaded) {
+            var mesh = model.getObject3D('mesh');
             if (mesh) {
-              mesh.traverse((node) => {
+              mesh.traverse(function (node) {
                 if (node.isMesh && node.material) {
                   node.material.transparent = true;
-                  if (this.isUnlocked) {
+                  if (unlocked) {
                     node.material.opacity = 1.0;
-                    node.material.color = new THREE.Color('#FFFFFF'); 
+                    node.material.color = new THREE.Color('#FFFFFF');
+                  } else if (near) {
+                    node.material.opacity = 0.6;
+                    node.material.color = new THREE.Color('#9aa0a6');
                   } else {
-                    node.material.opacity = 0.4;
-                    node.material.color = new THREE.Color('#555555'); 
+                    node.material.opacity = 0.35;
+                    node.material.color = new THREE.Color('#555555');
                   }
                   node.material.needsUpdate = true;
                 }
@@ -90,106 +161,111 @@
         }
       });
 
-      // 2. COMPONENT: Clickable Link Failsafe with Hardware Touch Check
+      /* ---------------------------------------------------------
+         COMPONENT: scale model by AR-placed distance (visual only).
+         Kept separate + simple. Locks Y to camera to stop the
+         vertical "GPS bounce", same intent as your original.
+         --------------------------------------------------------- */
+      AFRAME.registerComponent('ar-scale', {
+        tick: function () {
+          var camEl = document.querySelector('a-camera');
+          if (!camEl) return;
+          var camera = camEl.object3D;
+          var wrapper = this.el.object3D;
+          wrapper.position.y = camera.position.y; // prevent altitude bounce
+          var distance = wrapper.position.distanceTo(camera.position);
+          var s = Math.max(5, distance * 0.1);
+          this.el.setAttribute('scale', s + ' ' + s + ' ' + s);
+        }
+      });
+
+      /* ---------------------------------------------------------
+         COMPONENT: open link — fires only on real arrival + real tap.
+         Proximity gating now does the heavy lifting, so the
+         phantom-click failsafes are a light backup, not the system.
+         --------------------------------------------------------- */
       AFRAME.registerComponent('open-link', {
         schema: { url: { type: 'string', default: '' } },
         init: function () {
-          this.el.addEventListener('click', (evt) => {
-            
-            // FAILSAFE 1: Did a human actually touch the screen in the last 1000ms?
-            if (Date.now() - window.lastHumanTouch > 1000) {
-              console.log("Blocked Phantom Click: No recent human touch detected.");
-              return;
-            }
-
-            // FAILSAFE 2: Parent layer must be visibly toggled ON
-            if (!this.el.parentEl.getAttribute('visible')) return;
-            
-            // FAILSAFE 3: Must be actively within the 100m unlock range
-            if (!this.el.classList.contains('clickable')) return;
-
-            // Open URL
-            if (this.data.url && this.data.url !== '#') {
-              window.location.href = this.data.url;
+          var self = this;
+          this.el.addEventListener('click', function () {
+            // Must be in the clickable (arrived) state
+            if (!self.el.classList.contains('clickable')) return;
+            // Parent layer must be visible
+            if (!self.el.parentEl.getAttribute('visible')) return;
+            // Real recent human touch (backup against synthetic clicks)
+            if (Date.now() - (window.lastHumanTouch || 0) > 1200) return;
+            if (self.data.url && self.data.url !== '#') {
+              window.location.href = self.data.url;
             }
           });
         }
       });
+
+      // Track genuine touches (backup failsafe)
+      window.lastHumanTouch = 0;
+      function registerHumanTouch(e) {
+        if (e.target && e.target.tagName === 'BUTTON') return;
+        window.lastHumanTouch = Date.now();
+      }
+      window.addEventListener('touchend', registerHumanTouch, true);
+      window.addEventListener('mouseup', registerHumanTouch, true);
     </script>
 
     <style>
       body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: sans-serif; }
-      #ar-container { height: 50%; width: 100%; position: relative; }
+      #ar-container { height: 50%; width: 100%; position: relative; background: #000; }
       #map-container { height: 50%; width: 100%; }
       #ar-container video { object-fit: cover; }
-      
-      /* UI Controls */
+
       #ui-controls {
-        position: absolute;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 9999;
-        display: flex;
-        gap: 10px;
+        position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+        z-index: 9999; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+        width: 96%;
       }
       button {
-        padding: 12px 16px;
-        font-size: 14px;
-        font-weight: bold;
-        background-color: #ffffff;
-        color: #333;
-        border: 2px solid #333;
-        border-radius: 8px;
-        cursor: pointer;
-        box-shadow: 0px 4px 6px rgba(0,0,0,0.3);
-        transition: 0.2s;
+        padding: 10px 12px; font-size: 13px; font-weight: bold;
+        background-color: #fff; color: #333; border: 2px solid #333;
+        border-radius: 8px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         white-space: nowrap;
       }
-      button:active {
-        background-color: #e0e0e0;
-      }
+      button:active { background-color: #e0e0e0; }
+      #imHereBtn { border-color:#0a7d2c; color:#0a7d2c; }
 
-      /* Custom Compass Map Marker */
-      .clear-icon { background: transparent; border: none; }
-      .compass-wrapper {
-        width: 24px;
-        height: 24px;
-        transition: transform 0.1s ease-out; 
-        position: relative;
+      /* GPS accuracy readout */
+      #gps-status {
+        position: absolute; bottom: 10px; left: 10px; z-index: 9999;
+        background: rgba(0,0,0,0.65); color: #fff; padding: 6px 10px;
+        border-radius: 6px; font-size: 12px; line-height: 1.35;
       }
+      #gps-status .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+      .dot-good { background:#27c840; } .dot-ok { background:#f5b400; } .dot-bad { background:#ff3b30; }
+
+      .clear-icon { background: transparent; border: none; }
+      .compass-wrapper { width: 24px; height: 24px; transition: transform 0.1s ease-out; position: relative; }
       .compass-dot {
-        width: 16px;
-        height: 16px;
-        background-color: dodgerblue;
-        border: 2px solid white;
-        border-radius: 50%;
-        position: absolute;
-        top: 4px;
-        left: 4px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+        width: 16px; height: 16px; background-color: dodgerblue; border: 2px solid white;
+        border-radius: 50%; position: absolute; top: 4px; left: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.4);
       }
       .compass-arrow {
-        width: 0;
-        height: 0;
-        border-left: 8px solid transparent;
-        border-right: 8px solid transparent;
-        border-bottom: 14px solid dodgerblue;
-        position: absolute;
-        top: -6px;
-        left: 4px;
-        filter: drop-shadow(0px -2px 0px white); 
+        width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent;
+        border-bottom: 14px solid dodgerblue; position: absolute; top: -6px; left: 4px;
+        filter: drop-shadow(0px -2px 0px white);
       }
+      /* Proximity rings on the map */
+      .leaflet-interactive.ring-unlock { }
     </style>
   </head>
   <body>
-    
+
     <div id="ar-container">
-      
       <div id="ui-controls">
-        <button id="toggleLayerBtn">Showing Layer 1</button>
+        <button id="toggleLayerBtn">Showing: Stories</button>
         <button id="compassBtn">🧭 Start Compass</button>
+        <button id="imHereBtn">📍 I'm here</button>
       </div>
+
+      <div id="gps-status"><span class="dot dot-bad"></span>Locating…</div>
 
       <a-scene
         embedded
@@ -198,66 +274,89 @@
         cursor="rayOrigin: mouse"
         raycaster="objects: .clickable"
       >
-        <a-camera gps-camera rotation-reader near="0.1" far="5000"></a-camera>
+        <a-camera gps-camera="minDistance: 5; maxDistance: 5000" rotation-reader near="0.1" far="5000"></a-camera>
 
         <a-assets>
           <a-asset-item id="custom-model" src="assets/mappoint.glb"></a-asset-item>
         </a-assets>
 
-        <a-entity class="ar-loc layer-1" visible="true" gps-entity-place="latitude: 39.109621384126825; longitude: 26.565955633631958;" manage-distance-state>
+        <!-- LAYER 1: STORIES -->
+        <a-entity class="ar-loc layer-1" visible="true"
+                  gps-entity-place="latitude: 39.109621384126825; longitude: 26.565955633631958;"
+                  ar-scale story-location="lat: 39.109621384126825; lng: 26.565955633631958; id: L1">
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 -1 0"></a-entity>
-          <a-text value="Location 1" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Story 1" color="white" align="center" position="0 2 0" look-at=".a-camera, [gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity class="ar-loc layer-1" visible="true" gps-entity-place="latitude: 39.10857606378002; longitude: 26.556846506429483;" manage-distance-state>
+        <a-entity class="ar-loc layer-1" visible="true"
+                  gps-entity-place="latitude: 39.10857606378002; longitude: 26.556846506429483;"
+                  ar-scale story-location="lat: 39.10857606378002; lng: 26.556846506429483; id: L2">
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 -1 0"></a-entity>
-          <a-text value="Location 2" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Story 2" color="white" align="center" position="0 2 0" look-at=".a-camera, [gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity class="ar-loc layer-1" visible="true" gps-entity-place="latitude: 39.111285807437675; longitude: 26.55744215838956;" manage-distance-state>
+        <a-entity class="ar-loc layer-1" visible="true"
+                  gps-entity-place="latitude: 39.111285807437675; longitude: 26.55744215838956;"
+                  ar-scale story-location="lat: 39.111285807437675; lng: 26.55744215838956; id: L3">
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Red" position="0 -1 0"></a-entity>
-          <a-text value="Location 3" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Story 3" color="white" align="center" position="0 2 0" look-at=".a-camera, [gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity class="ar-loc layer-1" visible="true" gps-entity-place="latitude: 39.11161250638677; longitude: 26.55834494382977;" manage-distance-state>
+        <a-entity class="ar-loc layer-1" visible="true"
+                  gps-entity-place="latitude: 39.11161250638677; longitude: 26.55834494382977;"
+                  ar-scale story-location="lat: 39.11161250638677; lng: 26.55834494382977; id: L4">
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Blue" position="0 -1 0"></a-entity>
-          <a-text value="Location 4" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Story 4" color="white" align="center" position="0 2 0" look-at=".a-camera, [gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity class="ar-loc layer-1" visible="true" gps-entity-place="latitude: 39.11245132108184; longitude: 26.558762197607667;" manage-distance-state>
+        <a-entity class="ar-loc layer-1" visible="true"
+                  gps-entity-place="latitude: 39.11245132108184; longitude: 26.558762197607667;"
+                  ar-scale story-location="lat: 39.11245132108184; lng: 26.558762197607667; id: L5">
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Green" position="0 -1 0"></a-entity>
-          <a-text value="Location 5" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Story 5" color="white" align="center" position="0 2 0" look-at=".a-camera, [gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity class="ar-loc layer-1" visible="true" gps-entity-place="latitude: 39.113069388689055; longitude: 26.560013958978683;" manage-distance-state>
+        <a-entity class="ar-loc layer-1" visible="true"
+                  gps-entity-place="latitude: 39.113069388689055; longitude: 26.560013958978683;"
+                  ar-scale story-location="lat: 39.113069388689055; lng: 26.560013958978683; id: L6">
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Yellow" position="0 -1 0"></a-entity>
-          <a-text value="Location 6" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Story 6" color="white" align="center" position="0 2 0" look-at=".a-camera, [gps-camera]"></a-text>
         </a-entity>
 
-
-        <a-entity class="ar-loc layer-2" visible="false" gps-entity-place="latitude: 39.11321360368077; longitude: 26.561102612009524;" manage-distance-state>
+        <!-- LAYER 2: SONIC GUIDES -->
+        <a-entity class="ar-loc layer-2" visible="false"
+                  gps-entity-place="latitude: 39.11321360368077; longitude: 26.561102612009524;"
+                  ar-scale story-location="lat: 39.11321360368077; lng: 26.561102612009524; id: L7">
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Purple" position="0 -1 0"></a-entity>
-          <a-text value="Location 7" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Sonic 1" color="white" align="center" position="0 2 0" look-at=".a-camera, [gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity class="ar-loc layer-2" visible="false" gps-entity-place="latitude: 39.11293694608975; longitude: 26.562718522083177;" manage-distance-state>
+        <a-entity class="ar-loc layer-2" visible="false"
+                  gps-entity-place="latitude: 39.11293694608975; longitude: 26.562718522083177;"
+                  ar-scale story-location="lat: 39.11293694608975; lng: 26.562718522083177; id: L8">
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: https://en.wikipedia.org/wiki/Orange_(colour)" position="0 -1 0"></a-entity>
-          <a-text value="Location 8" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Sonic 2" color="white" align="center" position="0 2 0" look-at=".a-camera, [gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity class="ar-loc layer-2" visible="false" gps-entity-place="latitude: 39.112522245165536; longitude: 26.55472019777063;" manage-distance-state>
+        <a-entity class="ar-loc layer-2" visible="false"
+                  gps-entity-place="latitude: 39.112522245165536; longitude: 26.55472019777063;"
+                  ar-scale story-location="lat: 39.112522245165536; lng: 26.55472019777063; id: L9">
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: #" position="0 -1 0"></a-entity>
-          <a-text value="Location 9" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Sonic 3" color="white" align="center" position="0 2 0" look-at=".a-camera, [gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity class="ar-loc layer-2" visible="false" gps-entity-place="latitude: 39.11313293752422; longitude: 26.561410299736572;" manage-distance-state>
+        <a-entity class="ar-loc layer-2" visible="false"
+                  gps-entity-place="latitude: 39.11313293752422; longitude: 26.561410299736572;"
+                  ar-scale story-location="lat: 39.11313293752422; lng: 26.561410299736572; id: L10">
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: #" position="0 -1 0"></a-entity>
-          <a-text value="Location 10" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Sonic 4" color="white" align="center" position="0 2 0" look-at=".a-camera, [gps-camera]"></a-text>
         </a-entity>
 
-        <a-entity class="ar-loc layer-2" visible="false" gps-entity-place="latitude: 39.11116343567997; longitude: 26.555408884737712;" manage-distance-state>
+        <a-entity class="ar-loc layer-2" visible="false"
+                  gps-entity-place="latitude: 39.11116343567997; longitude: 26.555408884737712;"
+                  ar-scale story-location="lat: 39.11116343567997; lng: 26.555408884737712; id: L11">
           <a-entity gltf-model="#custom-model" class="shape-model" open-link="url: #" position="0 -1 0"></a-entity>
-          <a-text value="Location 11" color="white" align="center" position="0 2 0" look-at="[gps-camera]"></a-text>
+          <a-text value="Sonic 5" color="white" align="center" position="0 2 0" look-at=".a-camera, [gps-camera]"></a-text>
         </a-entity>
 
       </a-scene>
@@ -266,140 +365,190 @@
     <div id="map-container"></div>
 
     <script>
-      // --- Button Logic (Toggle Layers & Compass) ---
-      let isLayer1Active = true;
-      let toggleBtn = document.getElementById('toggleLayerBtn');
-      let compassBtn = document.getElementById('compassBtn');
+      /* ---------------- Layer toggle ---------------- */
+      var isLayer1Active = true;
+      var toggleBtn = document.getElementById('toggleLayerBtn');
+      var compassBtn = document.getElementById('compassBtn');
+      var imHereBtn = document.getElementById('imHereBtn');
 
-      // Stop canvas clicks from firing behind the buttons
-      toggleBtn.addEventListener('pointerdown', e => e.stopPropagation());
-      compassBtn.addEventListener('pointerdown', e => e.stopPropagation());
-      
-      toggleBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        isLayer1Active = !isLayer1Active;
-        toggleBtn.innerText = isLayer1Active ? "Showing Layer 1" : "Showing Layer 2";
-
-        // 1. Toggle AR Scene Visibility
-        document.querySelectorAll('.ar-loc').forEach(el => {
-          let isLayer1Item = el.classList.contains('layer-1');
-          let shouldBeVisible = isLayer1Active ? isLayer1Item : !isLayer1Item;
-          
-          el.setAttribute('visible', shouldBeVisible);
-          
-          if (el.components['manage-distance-state']) {
-            el.components['manage-distance-state'].updateState();
-          }
-        });
-
-        // 2. Toggle Map Markers
-        if (isLayer1Active) {
-          map.addLayer(mapLayer1Group);
-          map.removeLayer(mapLayer2Group);
-        } else {
-          map.addLayer(mapLayer2Group);
-          map.removeLayer(mapLayer1Group);
-        }
+      [toggleBtn, compassBtn, imHereBtn].forEach(function (b) {
+        b.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
       });
 
-      // --- Map Initialization ---
-      var map = L.map('map-container').setView([39.1124, 26.5595], 15);
+      toggleBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        isLayer1Active = !isLayer1Active;
+        toggleBtn.innerText = isLayer1Active ? "Showing: Stories" : "Showing: Sonic guides";
 
+        document.querySelectorAll('.ar-loc').forEach(function (el) {
+          var isL1 = el.classList.contains('layer-1');
+          var show = isLayer1Active ? isL1 : !isL1;
+          el.setAttribute('visible', show);
+          if (el.components['story-location']) el.components['story-location'].apply();
+        });
+
+        if (isLayer1Active) { map.addLayer(mapLayer1Group); map.removeLayer(mapLayer2Group); }
+        else { map.addLayer(mapLayer2Group); map.removeLayer(mapLayer1Group); }
+      });
+
+      /* ---------------- Map ---------------- */
+      var map = L.map('map-container').setView([39.1124, 26.5595], 15);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap'
+        maxZoom: 19, attribution: '© OpenStreetMap'
       }).addTo(map);
 
-      var mapLayer1Group = L.layerGroup().addTo(map); 
+      var mapLayer1Group = L.layerGroup().addTo(map);
       var mapLayer2Group = L.layerGroup();
 
       var locations = [
-        { lat: 39.109621384126825, lng: 26.565955633631958, name: "Location 1", layer: 1, url: "https://en.wikipedia.org/wiki/Red" },
-        { lat: 39.10857606378002, lng: 26.556846506429483, name: "Location 2", layer: 1, url: "https://en.wikipedia.org/wiki/Red" },
-        { lat: 39.111285807437675, lng: 26.55744215838956, name: "Location 3", layer: 1, url: "https://en.wikipedia.org/wiki/Red" },
-        { lat: 39.11161250638677, lng: 26.55834494382977, name: "Location 4", layer: 1, url: "https://en.wikipedia.org/wiki/Blue" },
-        { lat: 39.11245132108184, lng: 26.558762197607667, name: "Location 5", layer: 1, url: "https://en.wikipedia.org/wiki/Green" },
-        { lat: 39.113069388689055, lng: 26.560013958978683, name: "Location 6", layer: 1, url: "https://en.wikipedia.org/wiki/Yellow" },
-        
-        { lat: 39.11321360368077, lng: 26.561102612009524, name: "Location 7", layer: 2, url: "https://en.wikipedia.org/wiki/Purple" },
-        { lat: 39.11293694608975, lng: 26.562718522083177, name: "Location 8", layer: 2, url: "https://en.wikipedia.org/wiki/Orange_(colour)" },
-        { lat: 39.112522245165536, lng: 26.55472019777063, name: "Location 9", layer: 2, url: "#" },
-        { lat: 39.11313293752422, lng: 26.561410299736572, name: "Location 10", layer: 2, url: "#" },
-        { lat: 39.11116343567997, lng: 26.555408884737712, name: "Location 11", layer: 2, url: "#" }
+        { lat: 39.109621384126825, lng: 26.565955633631958, name: "Story 1", layer: 1, url: "https://en.wikipedia.org/wiki/Red" },
+        { lat: 39.10857606378002,  lng: 26.556846506429483, name: "Story 2", layer: 1, url: "https://en.wikipedia.org/wiki/Red" },
+        { lat: 39.111285807437675, lng: 26.55744215838956,  name: "Story 3", layer: 1, url: "https://en.wikipedia.org/wiki/Red" },
+        { lat: 39.11161250638677,  lng: 26.55834494382977,  name: "Story 4", layer: 1, url: "https://en.wikipedia.org/wiki/Blue" },
+        { lat: 39.11245132108184,  lng: 26.558762197607667, name: "Story 5", layer: 1, url: "https://en.wikipedia.org/wiki/Green" },
+        { lat: 39.113069388689055, lng: 26.560013958978683, name: "Story 6", layer: 1, url: "https://en.wikipedia.org/wiki/Yellow" },
+        { lat: 39.11321360368077,  lng: 26.561102612009524, name: "Sonic 1", layer: 2, url: "https://en.wikipedia.org/wiki/Purple" },
+        { lat: 39.11293694608975,  lng: 26.562718522083177, name: "Sonic 2", layer: 2, url: "https://en.wikipedia.org/wiki/Orange_(colour)" },
+        { lat: 39.112522245165536, lng: 26.55472019777063,  name: "Sonic 3", layer: 2, url: "#" },
+        { lat: 39.11313293752422,  lng: 26.561410299736572, name: "Sonic 4", layer: 2, url: "#" },
+        { lat: 39.11116343567997,  lng: 26.555408884737712, name: "Sonic 5", layer: 2, url: "#" }
       ];
 
-      locations.forEach(function(loc) {
-        var popupContent = `<b>${loc.name}</b><br><a href="${loc.url}">Click here to visit website</a>`;
-        var marker = L.marker([loc.lat, loc.lng]).bindPopup(popupContent);
-        
-        if (loc.layer === 1) {
-          mapLayer1Group.addLayer(marker);
-        } else {
-          mapLayer2Group.addLayer(marker);
-        }
+      locations.forEach(function (loc) {
+        var popup = '<b>' + loc.name + '</b><br><a href="' + loc.url + '">Open content</a>';
+        var marker = L.marker([loc.lat, loc.lng]).bindPopup(popup);
+        // Draw the unlock zone so users can see how close they must be
+        var ring = L.circle([loc.lat, loc.lng], {
+          radius: 20, color: loc.layer === 1 ? '#1769aa' : '#7b1fa2',
+          weight: 1, fillOpacity: 0.08
+        });
+        if (loc.layer === 1) { mapLayer1Group.addLayer(marker); mapLayer1Group.addLayer(ring); }
+        else { mapLayer2Group.addLayer(marker); mapLayer2Group.addLayer(ring); }
       });
 
-      // --- Compass & User Location Logic ---
+      /* ---------------- High-accuracy geolocation watcher ----------------
+         Replaces Leaflet's map.locate as the AR truth source. We smooth the
+         fix, gate on accuracy, and feed window.WM that the AR components read. */
+      var smoothLat = null, smoothLng = null;
+      var userMarker, accuracyCircle;
+
       var compassIcon = L.divIcon({
         className: 'clear-icon',
-        html: `
-          <div id="user-compass" class="compass-wrapper">
-            <div class="compass-arrow"></div>
-            <div class="compass-dot"></div>
-          </div>
-        `,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12] 
+        html: '<div id="user-compass" class="compass-wrapper"><div class="compass-arrow"></div><div class="compass-dot"></div></div>',
+        iconSize: [24, 24], iconAnchor: [12, 12]
       });
 
-      var userMarker;
-      map.locate({ watch: true, setView: true, maxZoom: 16, enableHighAccuracy: true });
-
-      map.on('locationfound', function(e) {
-        if (!userMarker) {
-          userMarker = L.marker(e.latlng, { icon: compassIcon }).addTo(map).bindPopup("You are here");
-        } else {
-          userMarker.setLatLng(e.latlng);
-        }
-      });
-
-      function handleOrientation(event) {
-        let heading;
-        if (event.webkitCompassHeading) {
-          heading = event.webkitCompassHeading;
-        } else if (event.absolute && event.alpha != null) {
-          heading = 360 - event.alpha; 
-        }
-
-        if (heading !== undefined) {
-          const compassEl = document.getElementById('user-compass');
-          if (compassEl) {
-            compassEl.style.transform = `rotate(${heading}deg)`;
-          }
-        }
+      function updateGpsStatus() {
+        var el = document.getElementById('gps-status');
+        var acc = window.WM.accuracy;
+        var cls, label;
+        if (!window.WM.hasFix) { cls = 'dot-bad'; label = 'Locating…'; }
+        else if (acc <= CONFIG.ACCURACY_GOOD) { cls = 'dot-good'; label = 'GPS good · ±' + Math.round(acc) + 'm'; }
+        else if (acc <= CONFIG.ACCURACY_MAX) { cls = 'dot-ok'; label = 'GPS fair · ±' + Math.round(acc) + 'm'; }
+        else { cls = 'dot-bad'; label = 'GPS weak · ±' + Math.round(acc) + 'm — move to open sky'; }
+        el.innerHTML = '<span class="dot ' + cls + '"></span>' + label;
       }
 
-      compassBtn.addEventListener('click', (e) => {
+      function onPosition(pos) {
+        var lat = pos.coords.latitude;
+        var lng = pos.coords.longitude;
+        var acc = pos.coords.accuracy || 9999;
+
+        // Reject wildly inaccurate fixes outright
+        if (acc > 100 && window.WM.hasFix) { window.WM.accuracy = acc; updateGpsStatus(); return; }
+
+        // Low-pass smoothing to kill jitter
+        if (smoothLat === null) { smoothLat = lat; smoothLng = lng; }
+        else {
+          smoothLat += (lat - smoothLat) * CONFIG.SMOOTHING;
+          smoothLng += (lng - smoothLng) * CONFIG.SMOOTHING;
+        }
+
+        window.WM.userLat = smoothLat;
+        window.WM.userLng = smoothLng;
+        window.WM.accuracy = acc;
+        window.WM.hasFix = true;
+
+        var ll = [smoothLat, smoothLng];
+        if (!userMarker) {
+          userMarker = L.marker(ll, { icon: compassIcon }).addTo(map).bindPopup("You are here");
+          map.setView(ll, 16);
+        } else {
+          userMarker.setLatLng(ll);
+        }
+        if (!accuracyCircle) {
+          accuracyCircle = L.circle(ll, { radius: acc, color:'#1769aa', weight:1, fillOpacity:0.05 }).addTo(map);
+        } else {
+          accuracyCircle.setLatLng(ll); accuracyCircle.setRadius(acc);
+        }
+        updateGpsStatus();
+      }
+
+      function onPositionError(err) {
+        var el = document.getElementById('gps-status');
+        el.innerHTML = '<span class="dot dot-bad"></span>GPS error: ' + err.message;
+      }
+
+      if ('geolocation' in navigator) {
+        navigator.geolocation.watchPosition(onPosition, onPositionError, {
+          enableHighAccuracy: true,
+          maximumAge: 1000,
+          timeout: 27000
+        });
+      } else {
+        document.getElementById('gps-status').innerText = 'Geolocation not supported';
+      }
+
+      /* ---------------- Manual "I'm here" fallback ----------------
+         When GPS is too weak to auto-unlock, the user can force-unlock the
+         nearest visible story. Clears after 30s so it doesn't stay forced. */
+      imHereBtn.addEventListener('click', function (e) {
         e.stopPropagation();
-        
+        if (!window.WM.hasFix) { alert('Waiting for a GPS fix first.'); return; }
+        var nearest = null, best = Infinity;
+        locations.forEach(function (loc, i) {
+          var visibleLayer = (isLayer1Active && loc.layer === 1) || (!isLayer1Active && loc.layer === 2);
+          if (!visibleLayer) return;
+          var d = (function () {
+            var R=6371000, tr=Math.PI/180;
+            var dLat=(loc.lat-window.WM.userLat)*tr, dLng=(loc.lng-window.WM.userLng)*tr;
+            var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(window.WM.userLat*tr)*Math.cos(loc.lat*tr)*Math.sin(dLng/2)*Math.sin(dLng/2);
+            return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+          })();
+          if (d < best) { best = d; nearest = 'L' + (i + 1); }
+        });
+        if (nearest && best <= 80) {
+          window.WM.manualUnlockId = nearest;
+          imHereBtn.innerText = '✓ Unlocked nearest';
+          setTimeout(function () { window.WM.manualUnlockId = null; imHereBtn.innerText = "📍 I'm here"; }, 30000);
+        } else {
+          alert('No story within ~80m. Walk closer and try again.');
+        }
+      });
+
+      /* ---------------- Compass heading ---------------- */
+      function handleOrientation(event) {
+        var heading;
+        if (event.webkitCompassHeading) heading = event.webkitCompassHeading;
+        else if (event.absolute && event.alpha != null) heading = 360 - event.alpha;
+        if (heading !== undefined) {
+          var c = document.getElementById('user-compass');
+          if (c) c.style.transform = 'rotate(' + heading + 'deg)';
+        }
+      }
+      compassBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
         if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-          DeviceOrientationEvent.requestPermission()
-            .then(permissionState => {
-              if (permissionState === 'granted') {
-                window.addEventListener('deviceorientation', handleOrientation);
-                compassBtn.style.display = 'none'; 
-              } else {
-                alert("Compass access was denied.");
-              }
-            })
-            .catch(console.error);
+          DeviceOrientationEvent.requestPermission().then(function (state) {
+            if (state === 'granted') { window.addEventListener('deviceorientation', handleOrientation); compassBtn.style.display = 'none'; }
+            else alert('Compass access was denied.');
+          }).catch(console.error);
         } else {
           window.addEventListener('deviceorientationabsolute', handleOrientation);
           window.addEventListener('deviceorientation', handleOrientation);
-          compassBtn.style.display = 'none'; 
+          compassBtn.style.display = 'none';
         }
       });
     </script>
-    
   </body>
 </html>
